@@ -1,0 +1,400 @@
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth import login
+from django.contrib import messages
+from django.utils import timezone
+from .forms import CustomUserCreationForm
+from .models import DailyAccessCode
+from django.contrib.auth.decorators import login_required
+
+from .models import Product, UserStock, StockTransaction
+from .forms import TakeProductForm, ReturnProductForm, TransferProductForm, UseProductForm, ProductAddForm
+from django.contrib.auth.models import User
+from django.contrib.admin.views.decorators import staff_member_required
+from django.db.models import F
+from django.core.mail import send_mail
+from django.conf import settings
+from .reports import create_excel_report
+from django.core.mail import EmailMessage
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework import status
+from rest_framework.response import Response
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def register_user(request):
+    """
+    JSON bekliyoruz:
+    {
+      "username": "ali",
+      "email": "ali@example.com",
+      "access_code": "1234567890",
+      "password": "ali12345",
+      "password2": "ali12345"  // Opsiyonel, eğer doğrulama istiyorsan
+    }
+    """
+    # 1) Gerekli verileri al
+    username = request.data.get('username')
+    email = request.data.get('email')
+    access_code = request.data.get('access_code')
+    password = request.data.get('password')
+    password2 = request.data.get('password2')  # opsiyonel
+
+    # 2) Boş alan kontrolü
+    if not username or not email or not access_code or not password:
+        return Response({"detail": "Tüm alanlar zorunludur."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 3) Şifre doğrulama (opsiyonel)
+    if password2 and password != password2:
+        return Response({"detail": "Parolalar eşleşmiyor."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 4) Günlük kodu kontrolü
+    today = timezone.now().date()
+    try:
+        daily_code = DailyAccessCode.objects.get(date=today)
+        if daily_code.code != access_code:
+            return Response({"detail": "Geçersiz erişim kodu."}, status=status.HTTP_400_BAD_REQUEST)
+    except DailyAccessCode.DoesNotExist:
+        return Response({"detail": "Bugün için erişim kodu belirlenmedi."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 5) Kullanıcı adı veya email zaten var mı?
+    if User.objects.filter(username=username).exists():
+        return Response({"detail": "Bu kullanıcı adı zaten mevcut."}, status=status.HTTP_400_BAD_REQUEST)
+    if User.objects.filter(email=email).exists():
+        return Response({"detail": "Bu email adresi zaten kullanılıyor."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 6) Kullanıcı oluşturma
+    user = User.objects.create_user(username=username, email=email, password=password)
+    user.save()
+
+    return Response({"detail": "Kayıt başarılı."}, status=status.HTTP_201_CREATED)
+
+
+# Mevcut index view'imiz (ana stok listesini gösteren):
+from .models import Product
+
+
+def index(request):
+    products = Product.objects.all()
+    return render(request, 'inventory/index.html', {'products': products})
+
+
+@staff_member_required
+def critical_stock_list(request):
+    # Kritik stok: ürün miktarı min_limit'in altındaysa (sipariş durumu farketmeksizin)
+    critical_products = Product.objects.filter(quantity__lt=F('min_limit'))
+    return render(request, "inventory/critical_stock_list.html", {"critical_products": critical_products})
+
+
+
+
+
+
+@login_required
+def add_product(request):
+    if request.method == "POST":
+        form = ProductAddForm(request.POST)
+        if form.is_valid():
+            part_code = form.cleaned_data['part_code']
+            name = form.cleaned_data['name']
+            qty = form.cleaned_data['quantity']
+
+            product, created = Product.objects.get_or_create(
+                part_code=part_code,
+                defaults={'name': name, 'quantity': qty}
+            )
+
+            if not created:
+                product.quantity += qty
+                product.save()
+
+                # Eğer ürün güncellendiğinde sipariş çekilmişse, sıfırlıyoruz.
+                if product.order_placed:
+                    product.order_placed = False
+                    product.save()
+
+                StockTransaction.objects.create(
+                    product=product,
+                    transaction_type="UPDATE",
+                    quantity=qty,
+                    user=request.user,
+                    description="Var olan ürüne ekleme yapıldı.",
+                    current_quantity=product.quantity
+                )
+            else:
+                StockTransaction.objects.create(
+                    product=product,
+                    transaction_type="IN",
+                    quantity=qty,
+                    user=request.user,
+                    description="Yeni ürün eklendi.",
+                    current_quantity=product.quantity
+                )
+            return redirect("index")
+    else:
+        form = ProductAddForm()
+    return render(request, "inventory/add_product.html", {"form": form})
+
+@login_required
+def take_product(request, product_id):
+    product = get_object_or_404(Product, id=product_id)
+
+    if request.method == "POST":
+        form = TakeProductForm(request.POST)
+        if form.is_valid():
+            qty = form.cleaned_data['quantity']
+            if product.quantity < qty:
+                form.add_error('quantity', 'Ana stokta yeterli miktar yok.')
+                return render(request, 'inventory/take_product.html', {'form': form, 'product': product})
+
+            user_stock, created = UserStock.objects.get_or_create(user=request.user, product=product)
+            user_stock.quantity += qty
+            user_stock.save()
+
+            product.quantity -= qty
+            product.save()
+
+            StockTransaction.objects.create(
+                product=product,
+                transaction_type="TAKE",
+                quantity=qty,
+                user=request.user,
+                description="Kullanıcı ana stoktan ürün aldı.",
+                current_quantity=product.quantity,
+                current_user_quantity=user_stock.quantity
+            )
+
+            return redirect('index')
+    else:
+        form = TakeProductForm(initial={'product_id': product.id})
+
+    return render(request, 'inventory/take_product.html', {'form': form, 'product': product})
+
+
+@login_required
+def return_product(request, product_id):
+    product = get_object_or_404(Product, id=product_id)
+    user_stock = get_object_or_404(UserStock, user=request.user, product=product)
+
+    if request.method == "POST":
+        form = ReturnProductForm(request.POST)
+        if form.is_valid():
+            qty = form.cleaned_data['quantity']
+            if user_stock.quantity < qty:
+                form.add_error('quantity', 'Kişisel stokta yeterli miktar yok.')
+                return render(request, 'inventory/return_product.html',
+                              {'form': form, 'product': product, 'user_stock': user_stock})
+
+            user_stock.quantity -= qty
+            user_stock.save()
+
+            product.quantity += qty
+            product.save()
+
+            StockTransaction.objects.create(
+                product=product,
+                transaction_type="RETURN",
+                quantity=qty,
+                user=request.user,
+                description="Kullanıcı ürünü ana stoğa iade etti.",
+                current_quantity=product.quantity,
+                current_user_quantity=user_stock.quantity
+            )
+
+            return redirect('index')
+    else:
+        form = ReturnProductForm(initial={'product_id': product.id})
+
+    return render(request, 'inventory/return_product.html',
+                  {'form': form, 'product': product, 'user_stock': user_stock})
+
+
+@login_required
+@login_required
+def transfer_product(request, product_id):
+    product = get_object_or_404(Product, id=product_id)
+    sender_stock = get_object_or_404(UserStock, user=request.user, product=product)
+
+    if request.method == "POST":
+        form = TransferProductForm(request.POST)
+        if form.is_valid():
+            target_username = form.cleaned_data['target_username']
+            qty = form.cleaned_data['quantity']
+
+            if sender_stock.quantity < qty:
+                form.add_error('quantity', 'Kişisel stokta yeterli miktar yok.')
+                return render(request, 'inventory/transfer_product.html', {
+                    'form': form,
+                    'product': product,
+                    'sender_stock': sender_stock
+                })
+
+            try:
+                target_user = User.objects.get(username=target_username)
+            except User.DoesNotExist:
+                form.add_error('target_username', 'Belirtilen kullanıcı bulunamadı.')
+                return render(request, 'inventory/transfer_product.html', {
+                    'form': form,
+                    'product': product,
+                    'sender_stock': sender_stock
+                })
+
+            receiver_stock, created = UserStock.objects.get_or_create(user=target_user, product=product)
+
+            sender_stock.quantity -= qty
+            sender_stock.save()
+
+            receiver_stock.quantity += qty
+            receiver_stock.save()
+
+            StockTransaction.objects.create(
+                product=product,
+                transaction_type="TRANSFER",
+                quantity=qty,
+                user=request.user,
+                target_user=target_user,
+                description="Kullanıcılar arası transfer yapıldı.",
+                current_user_quantity=sender_stock.quantity,
+                current_receiver_quantity=receiver_stock.quantity
+            )
+
+            return redirect('index')
+    else:
+        form = TransferProductForm()
+
+    return render(request, 'inventory/transfer_product.html', {
+        'form': form,
+        'product': product,
+        'sender_stock': sender_stock
+    })
+
+
+@login_required
+def use_product(request, product_id):
+    product = get_object_or_404(Product, id=product_id)
+    user_stock = get_object_or_404(UserStock, user=request.user, product=product)
+
+    if request.method == "POST":
+        form = UseProductForm(request.POST)
+        if form.is_valid():
+            qty = form.cleaned_data['quantity']
+            if user_stock.quantity < qty:
+                form.add_error('quantity', 'Kişisel stokta yeterli miktar yok.')
+                return render(request, 'inventory/use_product.html', {
+                    'form': form,
+                    'product': product,
+                    'user_stock': user_stock
+                })
+
+            user_stock.quantity -= qty
+            user_stock.save()
+
+            StockTransaction.objects.create(
+                product=product,
+                transaction_type="USE",
+                quantity=qty,
+                user=request.user,
+                description="Kullanıcı ürünü kullandı.",
+                current_user_quantity=user_stock.quantity
+            )
+
+            return redirect('index')
+    else:
+        form = UseProductForm(initial={'product_id': product.id})
+
+    return render(request, 'inventory/use_product.html', {
+        'form': form,
+        'product': product,
+        'user_stock': user_stock
+    })
+
+
+@staff_member_required
+def transaction_log(request):
+    logs = StockTransaction.objects.all().order_by('-timestamp')
+    return render(request, 'inventory/transaction_log.html', {'logs': logs})
+
+
+@staff_member_required
+def send_critical_stock_email(request):
+    from django.db.models import F
+    critical_products = Product.objects.filter(quantity__lt=F('min_limit'))
+
+    # Siparişi çekilmemiş ve çekilmiş ürünleri ayıralım:
+    not_ordered = critical_products.filter(order_placed=False)
+    ordered = critical_products.filter(order_placed=True)
+
+    subject = "Kritik Stok Uyarısı"
+    message = "Kritik Stok Durumu Uyarısı:\n\n"
+
+    # Siparişi Çekilmemiş Ürünler:
+    message += "Siparişi Çekilmemiş Ürünler:\n"
+    if not_ordered.exists():
+        header = f"{'Parça Kodu':<12} {'Ürün İsmi':<20} {'Mevcut Adet':>12} {'Min Limit':>10}\n"
+        divider = "-" * 60 + "\n"
+        message += divider + header + divider
+        for product in not_ordered:
+            message += f"{product.part_code:<12} {product.name:<20} {product.quantity:>12} {product.min_limit:>10}\n"
+        message += divider + "\n"
+    else:
+        message += "Bu kategori için kritik stok ürünü bulunmamaktadır.\n\n"
+
+    # Siparişi Çekilmiş Ürünler:
+    message += "Siparişi Çekilmiş Ürünler, Tedariği Bekleniyor:\n"
+    if ordered.exists():
+        header = f"{'Parça Kodu':<12} {'Ürün İsmi':<20} {'Mevcut Adet':>12} {'Min Limit':>10}\n"
+        divider = "-" * 60 + "\n"
+        message += divider + header + divider
+        for product in ordered:
+            message += f"{product.part_code:<12} {product.name:<20} {product.quantity:>12} {product.min_limit:>10}\n"
+        message += divider + "\n"
+    else:
+        message += "Bu kategori için kritik stok ürünü bulunmamaktadır.\n\n"
+
+    recipient = settings.CRITICAL_STOCK_ALERT_RECIPIENT
+    send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient])
+
+    # Mail gönderildikten sonra, sipariş çekilmemiş ürünleri sipariş çekilmiş olarak işaretleyelim.
+    not_ordered.update(order_placed=True)
+
+    messages.success(request, "Kritik stok uyarı maili gönderildi.")
+    return redirect('critical_stock_list')
+
+
+@staff_member_required
+def send_excel_report_email(request):
+    from django.db.models import F
+    critical_products = Product.objects.filter(quantity__lt=F('min_limit'))
+    if not critical_products.exists():
+        messages.info(request, "Kritik stok ürünü bulunamadı. Mail gönderilmeyecek.")
+        return redirect('critical_stock_list')
+
+    excel_file = create_excel_report(critical_products)
+    excel_content = excel_file.read()
+    excel_file.seek(0)
+
+    subject = "Kritik Stok Excel Raporu"
+    body = "Ek'te, kritik stok raporunu bulabilirsiniz."
+    email = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, [settings.CRITICAL_STOCK_ALERT_RECIPIENT])
+    email.attach('kritik_stok_raporu.xlsx', excel_content, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    email.send()
+
+    # Push bildirim gönderelim: Kritik stok uyarısı.
+    notification_title = "Kritik Stok Uyarısı"
+    notification_body = "Bazı ürünlerin stokları kritik seviyeye düştü. Lütfen kontrol ediniz."
+    send_push_notification(notification_title, notification_body)
+
+    messages.success(request, "Kritik stok Excel raporlu e-posta ve push bildirim gönderildi.")
+    return redirect('critical_stock_list')
+
+
+
+
+#push test fonsksiyonu silinecek
+from django.http import HttpResponse
+from .reports import send_push_notification
+def test_push(request):
+    result = send_push_notification("Test Başlık", "Bu bir test push bildirimi.")
+    return HttpResponse(f"Push notification result: {result}")

@@ -104,6 +104,60 @@ def register_user(request):
     return Response({"detail": "Kayıt başarılı."}, status=status.HTTP_201_CREATED)
 
 
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def forgot_password_user(request):
+    """
+    JSON bekliyoruz:
+    {
+      "username": "ali",
+      "access_code": "1234567890",
+      "new_password": "yeniSifre",
+      "new_password2": "yeniSifre"
+    }
+    1) username + daily code eşleşiyor mu?
+    2) new_password2 ile doğrulama
+    3) user set_password(new_password)
+    4) kaydet
+    """
+    username = request.data.get('username')
+    access_code = request.data.get('access_code')
+    new_password = request.data.get('new_password')
+    new_password2 = request.data.get('new_password2')
+
+    # 1) Boş alan kontrolü
+    if not username or not access_code or not new_password or not new_password2:
+        return Response({"detail": "Tüm alanlar zorunludur."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 2) Parola doğrulama
+    if new_password != new_password2:
+        return Response({"detail": "Yeni şifreler eşleşmiyor."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 3) Günlük kodu kontrolü
+    today = timezone.now().date()
+    try:
+        daily_code = DailyAccessCode.objects.get(date=today)
+        if daily_code.code != access_code:
+            return Response({"detail": "Geçersiz erişim kodu."}, status=status.HTTP_400_BAD_REQUEST)
+    except DailyAccessCode.DoesNotExist:
+        return Response({"detail": "Bugün için erişim kodu belirlenmedi."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 4) Kullanıcıyı bul
+    try:
+        user = User.objects.get(username=username)
+    except User.DoesNotExist:
+        return Response({"detail": "Kullanıcı bulunamadı."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 5) Şifreyi güncelle
+    user.set_password(new_password)
+    user.save()
+
+    return Response({"detail": "Şifre başarıyla güncellendi."}, status=status.HTTP_200_OK)
+
+
+
 # Mevcut index view'imiz (ana stok listesini gösteren):
 from .models import Product
 

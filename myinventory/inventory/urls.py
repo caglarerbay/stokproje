@@ -3,6 +3,7 @@ from django.contrib.auth import views as auth_views
 from . import views
 from .views import register_user
 from .views import login_user
+from .views import forgot_password_user
 
 urlpatterns = [
     path('', views.index, name='index'),
@@ -25,7 +26,8 @@ urlpatterns = [
     path('critical_stock/', views.critical_stock_list, name='critical_stock_list'),
     path('send_excel_report/', views.send_excel_report_email, name='send_excel_report'),
 
-     path('api/login/', login_user, name='login_user')
+     path('api/login/', login_user, name='login_user'),
+     
+     path('api/forgot_password/', forgot_password_user, name='forgot_password_user')
     
-
 ]

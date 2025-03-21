@@ -1,5 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import login
+
 from django.contrib import messages
 from django.utils import timezone
 from .forms import CustomUserCreationForm
@@ -20,6 +20,38 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework import status
 from rest_framework.response import Response
+from django.contrib.auth import authenticate, login
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login_user(request):
+    """
+    JSON bekliyoruz:
+    {
+      "username": "ali",
+      "password": "ali12345"
+    }
+    """
+    username = request.data.get('username')
+    password = request.data.get('password')
+
+    if not username or not password:
+        return Response({"detail": "Kullanıcı adı ve şifre zorunludur."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    user = authenticate(username=username, password=password)
+    if user is not None:
+        login(request, user)  # Django session oluşturur
+        return Response({"detail": "Giriş başarılı."}, status=status.HTTP_200_OK)
+    else:
+        return Response({"detail": "Geçersiz kullanıcı adı veya şifre."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+
+
+
 
 @csrf_exempt
 @api_view(['POST'])

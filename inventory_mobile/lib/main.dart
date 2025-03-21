@@ -1,5 +1,12 @@
 ﻿import 'package:flutter/material.dart';
-import 'register_screen.dart'; // az önce oluşturduğun dosya
+// Senin register_screen.dart dosyanı import et
+import 'register_screen.dart';
+// Az önce oluşturduğun login_screen.dart dosyasını import et
+import 'login_screen.dart';
+// Eğer forgot_password_screen.dart varsa import et
+import 'forgot_password_screen.dart';
+// Eğer home_screen.dart varsa import et
+// import 'home_screen.dart';
 
 void main() {
   runApp(MyApp());
@@ -10,28 +17,16 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Inventory Mobile',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      home: HomeScreen(),
-    );
-  }
-}
-
-class HomeScreen extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('Ana Sayfa')),
-      body: Center(
-        child: ElevatedButton(
-          child: Text('Kayıt Ol'),
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => RegisterScreen()),
-            );
-          },
-        ),
-      ),
+      // Uygulama açıldığında ilk açılacak route (LoginScreen)
+      initialRoute: '/login',
+      routes: {
+        '/login': (context) => LoginScreen(),
+        '/register': (context) => RegisterScreen(),
+        // '/forgot_password': (context) => ForgotPasswordScreen(),
+        // '/home': (context) => HomeScreen(),
+      },
+      // Eğer “/home” gibi bir ekrana gideceksen, oraya da widget eklemen lazım
+      // Bu satırlar senin diğer dosyalarında tanımlı widget'lara işaret etmeli
     );
   }
 }

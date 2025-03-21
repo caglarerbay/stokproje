@@ -2,6 +2,7 @@ from django.urls import path
 from django.contrib.auth import views as auth_views
 from . import views
 from .views import register_user
+from .views import login_user
 
 urlpatterns = [
     path('', views.index, name='index'),
@@ -24,7 +25,7 @@ urlpatterns = [
     path('critical_stock/', views.critical_stock_list, name='critical_stock_list'),
     path('send_excel_report/', views.send_excel_report_email, name='send_excel_report'),
 
-    #push test url silinecek
-    path('test_push/', views.test_push, name='test_push'),
+     path('api/login/', login_user, name='login_user')
+    
 
 ]

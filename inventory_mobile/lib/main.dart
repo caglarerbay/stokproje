@@ -22,7 +22,7 @@ class MyApp extends StatelessWidget {
       routes: {
         '/login': (context) => LoginScreen(),
         '/register': (context) => RegisterScreen(),
-        // '/forgot_password': (context) => ForgotPasswordScreen(),
+        '/forgot_password': (context) => ForgotPasswordScreen(),
         // '/home': (context) => HomeScreen(),
       },
       // Eğer “/home” gibi bir ekrana gideceksen, oraya da widget eklemen lazım

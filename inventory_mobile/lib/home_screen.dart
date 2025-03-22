@@ -154,15 +154,30 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Ana Ekran - Yazdıkça Arama')),
+      appBar: AppBar(title: Text('Ana Ekran')),
       body: Column(
         children: [
-          // TextField - her karakterde arama
+          // Üst kısım: Arama kutusu + Transfer butonu yan yana
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(labelText: 'Ürün Kodu/Adı'),
+            child: Row(
+              children: [
+                // Arama kutusu
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(labelText: 'Ürün Kodu/Adı'),
+                  ),
+                ),
+                SizedBox(width: 8),
+                // Transfer butonu
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pushNamed(context, '/transfer_usage');
+                  },
+                  child: Text('Transfer / Kullanım'),
+                ),
+              ],
             ),
           ),
 
@@ -173,13 +188,11 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(_errorMessage!, style: TextStyle(color: Colors.red)),
             ),
 
-          // Sonuç listesi
+          // Arama sonuçları
           Expanded(
             child:
                 _searchResults.isEmpty
-                    ? Center(
-                      child: Text('Ürün bulunamadı veya yazmaya başlayın.'),
-                    )
+                    ? Center(child: Text('Hiç ürün bulunamadı.'))
                     : ListView.builder(
                       itemCount: _searchResults.length,
                       itemBuilder: (context, index) {
@@ -215,7 +228,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ],
                           ),
-
                           subtitle: Text(
                             'Kod: ${product['part_code']} | Ana Stok: ${product['quantity']}',
                           ),
@@ -237,13 +249,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         );
                       },
                     ),
-          ),
-
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pushNamed(context, '/transfer_usage');
-            },
-            child: Text('Transfer / Kullanım'),
           ),
         ],
       ),

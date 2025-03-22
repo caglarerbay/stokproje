@@ -44,6 +44,10 @@ urlpatterns = [
      path('api/my_stock/', views.my_stock, name='my_stock'),
      path('api/use_product/<int:product_id>/', views.use_product_api, name='use_product_api'),
      path('api/transfer_product/<int:product_id>/', views.transfer_product_api, name='transfer_product_api'),
-    
-    
+     
+    path('api/user_list/', views.user_list, name='user_list'),
 ]
+
+    
+    
+

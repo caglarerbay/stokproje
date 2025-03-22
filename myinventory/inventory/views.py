@@ -218,6 +218,23 @@ def critical_stock_list(request):
     return render(request, "inventory/critical_stock_list.html", {"critical_products": critical_products})
 
 
+@csrf_exempt
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def user_list(request):
+    """
+    GET /api/user_list/
+    Tüm kullanıcıların kullanıcı adlarını JSON olarak döndürür.
+    """
+    from django.contrib.auth.models import User
+    users = User.objects.all()
+    results = []
+    for u in users:
+        results.append(u.username)
+
+    return Response({"users": results}, status=200)
+
+
 
 @csrf_exempt
 @api_view(['GET'])

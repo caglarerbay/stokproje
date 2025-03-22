@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -10,13 +11,36 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   List<dynamic> _searchResults = [];
+  String? _errorMessage;
 
-  String? _errorMessage; // Arama veya sunucu hataları için
+  // Debounce timer, her karakter girişinden sonra biraz bekleyip arama yapacağız
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    // Her metin değişikliğinde _onSearchChanged tetiklenir
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    // Kullanıcı her karakter girdiğinde burası tetiklenir
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(Duration(milliseconds: 300), () {
+      _searchProduct(); // 300 ms bekleyip arama yap
+    });
+  }
 
   Future<void> _searchProduct() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) {
-      // Lokal uyarı: Arama terimi boş
       setState(() {
         _errorMessage = "Arama terimi boş olamaz.";
         _searchResults.clear();
@@ -27,31 +51,25 @@ class _HomeScreenState extends State<HomeScreen> {
     final url = Uri.parse('http://127.0.0.1:8000/api/search_product/?q=$query');
     try {
       final response = await http.get(url);
-
       if (response.statusCode == 200) {
-        // Başarılı
         final List data = json.decode(utf8.decode(response.bodyBytes));
-        // data boş olabilir -> ürün bulunamadı
         setState(() {
-          _errorMessage = null; // varsa hata temizle
-          _searchResults = data; // data boşsa listView de boş olur
+          _errorMessage = null;
+          _searchResults = data;
         });
       } else if (response.statusCode == 400) {
-        // Arama terimi boş, ya da başka 400 durumu
         final body = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
           _errorMessage = body['detail'] ?? "Hata: 400";
           _searchResults.clear();
         });
       } else {
-        // Diğer hatalar
         setState(() {
           _errorMessage = "Arama hatası: ${response.statusCode}";
           _searchResults.clear();
         });
       }
     } catch (e) {
-      // Sunucuya erişilemedi vs.
       setState(() {
         _errorMessage = "Sunucuya erişilemedi: $e";
         _searchResults.clear();
@@ -62,55 +80,36 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Ana Ekran - Arama & car_stocks')),
+      appBar: AppBar(title: Text('Ana Ekran - Yazdıkça Arama')),
       body: Column(
         children: [
-          // Arama kutusu
+          // TextField - her karakterde arama
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(labelText: 'Ürün Kodu/Adı'),
-                  ),
-                ),
-                ElevatedButton(onPressed: _searchProduct, child: Text('Ara')),
-              ],
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(labelText: 'Ürün Kodu/Adı'),
             ),
           ),
 
-          // Hata mesajı göster
+          // Hata mesajı varsa göster
           if (_errorMessage != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: Text(_errorMessage!, style: TextStyle(color: Colors.red)),
             ),
 
-          // Sonuçlar
+          // Sonuç listesi
           Expanded(
             child:
                 _searchResults.isEmpty
                     ? Center(
-                      child: Text(
-                        'Ürün bulunamadı veya henüz arama yapılmadı.',
-                      ),
+                      child: Text('Ürün bulunamadı veya yazmaya başlayın.'),
                     )
                     : ListView.builder(
                       itemCount: _searchResults.length,
                       itemBuilder: (context, index) {
                         final product = _searchResults[index];
-                        // product = {
-                        //   "id": ...,
-                        //   "part_code": ...,
-                        //   "name": ...,
-                        //   "quantity": ...,
-                        //   "car_stocks": [
-                        //      {"username": "caglar", "quantity": 2},
-                        //      {"username": "kuzu", "quantity": 3},
-                        //   ]
-                        // }
                         final carStocks =
                             product['car_stocks'] as List<dynamic>? ?? [];
 
@@ -128,7 +127,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               )
                             else
                               ...carStocks.map((cs) {
-                                // cs = {"username": "...", "quantity": ...}
                                 return ListTile(
                                   title: Text('Kullanıcı: ${cs['username']}'),
                                   subtitle: Text('Miktar: ${cs['quantity']}'),

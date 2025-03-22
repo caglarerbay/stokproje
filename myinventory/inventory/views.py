@@ -21,6 +21,11 @@ from rest_framework.permissions import AllowAny
 from rest_framework import status
 from rest_framework.response import Response
 from django.contrib.auth import authenticate, login
+from django.db.models import Q
+
+
+
+
 
 
 @csrf_exempt
@@ -157,6 +162,29 @@ def forgot_password_user(request):
     return Response({"detail": "Şifre başarıyla güncellendi."}, status=status.HTTP_200_OK)
 
 
+@csrf_exempt
+@api_view(['GET'])
+def search_product(request):
+    query = request.GET.get('q', '').strip()
+    if not query:
+        return Response({"detail": "Arama terimi boş olamaz."}, status=status.HTTP_400_BAD_REQUEST)
+
+    products = Product.objects.filter(
+        Q(part_code__icontains=query) | Q(name__icontains=query)
+    )
+
+    # Burada bir serializer kullanabiliriz veya elle JSON oluşturabiliriz
+    results = []
+    for p in products:
+        results.append({
+            "id": p.id,
+            "part_code": p.part_code,
+            "name": p.name,
+            "quantity": p.quantity,  # ana depodaki miktar
+        })
+
+    return Response(results, status=status.HTTP_200_OK)
+
 
 # Mevcut index view'imiz (ana stok listesini gösteren):
 from .models import Product
@@ -223,78 +251,113 @@ def add_product(request):
         form = ProductAddForm()
     return render(request, "inventory/add_product.html", {"form": form})
 
-@login_required
+from django.shortcuts import get_object_or_404
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework import status
+from django.views.decorators.csrf import csrf_exempt
+from .models import Product, UserStock, StockTransaction
+from django.contrib.auth.models import User
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def take_product(request, product_id):
+    """
+    JSON tabanlı alma işlemi:
+    POST /take_product/<product_id>/
+    Body: { "quantity": 3 }
+
+    Bu fonksiyon, ana depodan car stoğuna ürün alır.
+    """
     product = get_object_or_404(Product, id=product_id)
+    data = request.data
+    qty = data.get('quantity', 0)
 
-    if request.method == "POST":
-        form = TakeProductForm(request.POST)
-        if form.is_valid():
-            qty = form.cleaned_data['quantity']
-            if product.quantity < qty:
-                form.add_error('quantity', 'Ana stokta yeterli miktar yok.')
-                return render(request, 'inventory/take_product.html', {'form': form, 'product': product})
+    try:
+        qty = int(qty)
+    except ValueError:
+        return Response({"detail": "Geçersiz quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
-            user_stock, created = UserStock.objects.get_or_create(user=request.user, product=product)
-            user_stock.quantity += qty
-            user_stock.save()
+    # Ana stokta yeterli var mı
+    if product.quantity < qty:
+        return Response({"detail": "Ana stokta yeterli miktar yok."}, status=status.HTTP_400_BAD_REQUEST)
 
-            product.quantity -= qty
-            product.save()
+    # Kullanıcının stoğunu bul veya oluştur
+    user = request.user if request.user.is_authenticated else None
+    # Not: eğer 'AllowAny' kullanıyorsan, user anonymous olabilir. Geliştirme aşamasında test için.
+    # Üretimde "IsAuthenticated" yapmak daha mantıklı.
+    if not user:
+        return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
 
-            StockTransaction.objects.create(
-                product=product,
-                transaction_type="TAKE",
-                quantity=qty,
-                user=request.user,
-                description="Kullanıcı ana stoktan ürün aldı.",
-                current_quantity=product.quantity,
-                current_user_quantity=user_stock.quantity
-            )
+    user_stock, created = UserStock.objects.get_or_create(user=user, product=product)
+    user_stock.quantity += qty
+    user_stock.save()
 
-            return redirect('index')
-    else:
-        form = TakeProductForm(initial={'product_id': product.id})
+    product.quantity -= qty
+    product.save()
 
-    return render(request, 'inventory/take_product.html', {'form': form, 'product': product})
+    StockTransaction.objects.create(
+        product=product,
+        transaction_type="TAKE",
+        quantity=qty,
+        user=user,
+        description="Kullanıcı ana stoktan ürün aldı.",
+        current_quantity=product.quantity,
+        current_user_quantity=user_stock.quantity
+    )
+
+    return Response({"detail": "Alma işlemi başarılı"}, status=status.HTTP_200_OK)
 
 
-@login_required
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def return_product(request, product_id):
+    """
+    JSON tabanlı iade işlemi:
+    POST /return_product/<product_id>/
+    Body: { "quantity": 2 }
+
+    Bu fonksiyon, car stoğundan ana stoğa ürün iade eder.
+    """
     product = get_object_or_404(Product, id=product_id)
-    user_stock = get_object_or_404(UserStock, user=request.user, product=product)
+    data = request.data
+    qty = data.get('quantity', 0)
 
-    if request.method == "POST":
-        form = ReturnProductForm(request.POST)
-        if form.is_valid():
-            qty = form.cleaned_data['quantity']
-            if user_stock.quantity < qty:
-                form.add_error('quantity', 'Kişisel stokta yeterli miktar yok.')
-                return render(request, 'inventory/return_product.html',
-                              {'form': form, 'product': product, 'user_stock': user_stock})
+    try:
+        qty = int(qty)
+    except ValueError:
+        return Response({"detail": "Geçersiz quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
-            user_stock.quantity -= qty
-            user_stock.save()
+    user = request.user if request.user.is_authenticated else None
+    if not user:
+        return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
 
-            product.quantity += qty
-            product.save()
+    # Kullanıcının stoğunu bul
+    user_stock = UserStock.objects.filter(user=user, product=product).first()
+    if not user_stock or user_stock.quantity < qty:
+        return Response({"detail": "Kişisel stokta yeterli miktar yok."}, status=status.HTTP_400_BAD_REQUEST)
 
-            StockTransaction.objects.create(
-                product=product,
-                transaction_type="RETURN",
-                quantity=qty,
-                user=request.user,
-                description="Kullanıcı ürünü ana stoğa iade etti.",
-                current_quantity=product.quantity,
-                current_user_quantity=user_stock.quantity
-            )
+    user_stock.quantity -= qty
+    user_stock.save()
 
-            return redirect('index')
-    else:
-        form = ReturnProductForm(initial={'product_id': product.id})
+    product.quantity += qty
+    product.save()
 
-    return render(request, 'inventory/return_product.html',
-                  {'form': form, 'product': product, 'user_stock': user_stock})
+    StockTransaction.objects.create(
+        product=product,
+        transaction_type="RETURN",
+        quantity=qty,
+        user=user,
+        description="Kullanıcı ürünü ana stoğa iade etti.",
+        current_quantity=product.quantity,
+        current_user_quantity=user_stock.quantity
+    )
+
+    return Response({"detail": "Bırakma işlemi başarılı"}, status=status.HTTP_200_OK)
+
 
 
 @login_required

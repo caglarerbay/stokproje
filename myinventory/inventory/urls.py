@@ -4,6 +4,8 @@ from . import views
 from .views import register_user
 from .views import login_user
 from .views import forgot_password_user
+from .views import search_product
+
 
 urlpatterns = [
     path('', views.index, name='index'),
@@ -28,6 +30,8 @@ urlpatterns = [
 
      path('api/login/', login_user, name='login_user'),
      
-     path('api/forgot_password/', forgot_password_user, name='forgot_password_user')
+     path('api/forgot_password/', forgot_password_user, name='forgot_password_user'),
+     path('api/search_product/', search_product, name='search_product'),
+    
     
 ]

@@ -15,7 +15,7 @@ urlpatterns = [
     path('password_change/', auth_views.PasswordChangeView.as_view(template_name='inventory/password_change.html'),
          name='password_change'),
     path('password_change/done/',
-         auth_views.PasswordChangeDoneView.as_view(template_name='inventory/password_change_done.html'),
+         auth_views.PasswordChangeDoneView.as_view(template_name='inventory/password_change_done.html'),787
          name='password_change_done'),
 
     path('add_product/', views.add_product, name='add_product'),

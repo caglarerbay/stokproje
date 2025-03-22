@@ -1,3 +1,5 @@
 git add .
 git commit -m "Yeni özellik eklendi"
 git push
+
+{"token":"34677e6b85d2912e8d57c30e815cd63c6ad7f0f3"}

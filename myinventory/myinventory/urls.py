@@ -21,8 +21,9 @@ from django.contrib import admin
 from django.urls import path, include  # include fonksiyonunu unutma!
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    
     path('', include('inventory.urls')),  # Uygulamanın URL'lerini dahil ediyoruz.
-    path('api/', include('inventory.urls_api')), # API endpoint'leri, /api/ prefix'i ile erişilecek
+    path('api/', include('inventory.urls_api')),
+     # API endpoint'leri, /api/ prefix'i ile erişilecek
 ]
 

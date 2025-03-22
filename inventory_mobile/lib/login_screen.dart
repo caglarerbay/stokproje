@@ -38,11 +38,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (response.statusCode == 200) {
         // Giriş başarılı
+        final decoded = json.decode(utf8.decode(response.bodyBytes));
+        // is_staff bilgisini yakalıyoruz (true/false)
+        final bool isStaff = decoded['is_staff'] ?? false;
+
         setState(() {
           _isLoading = false;
         });
-        // Burada anasayfaya yönlendirebilirsin
-        Navigator.pushReplacementNamed(context, '/home');
+
+        // Ana ekrana yönlendirelim, isStaff değerini arguments olarak geçiyoruz
+        Navigator.pushReplacementNamed(context, '/home', arguments: isStaff);
       } else {
         setState(() {
           _isLoading = false;

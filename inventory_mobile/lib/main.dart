@@ -8,6 +8,8 @@ import 'forgot_password_screen.dart';
 // Eğer home_screen.dart varsa import et
 import 'home_screen.dart';
 import 'transfer_usage_screen.dart';
+import 'admin_panel_screen.dart';
+import 'admin_add_product_screen.dart';
 
 void main() {
   runApp(MyApp());
@@ -26,6 +28,8 @@ class MyApp extends StatelessWidget {
         '/forgot_password': (context) => ForgotPasswordScreen(),
         '/home': (context) => HomeScreen(),
         '/transfer_usage': (context) => TransferUsageScreen(),
+        '/admin_panel': (context) => AdminPanelScreen(),
+        '/admin_add_product': (context) => AdminAddProductScreen(),
       },
       // Eğer “/home” gibi bir ekrana gideceksen, oraya da widget eklemen lazım
       // Bu satırlar senin diğer dosyalarında tanımlı widget'lara işaret etmeli

@@ -14,6 +14,8 @@ from .views import critical_stock_list
 from .views import take_product
 from .views import return_product
 from .views import add_product
+from rest_framework.authtoken import views as drf_auth_views
+
 
 
 urlpatterns = [
@@ -44,8 +46,12 @@ urlpatterns = [
      path('api/my_stock/', views.my_stock, name='my_stock'),
      path('api/use_product/<int:product_id>/', views.use_product_api, name='use_product_api'),
      path('api/transfer_product/<int:product_id>/', views.transfer_product_api, name='transfer_product_api'),
+     path('api/admin_add_product/', views.admin_add_product, name='admin_add_product'),
      
     path('api/user_list/', views.user_list, name='user_list'),
+
+    path('api-token-auth/', drf_auth_views.obtain_auth_token),
+    
 ]
 
     

@@ -22,6 +22,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from django.contrib.auth import authenticate, login
 from django.db.models import Q
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 
 
 
@@ -32,13 +33,6 @@ from django.db.models import Q
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_user(request):
-    """
-    JSON bekliyoruz:
-    {
-      "username": "ali",
-      "password": "ali12345"
-    }
-    """
     username = request.data.get('username')
     password = request.data.get('password')
 
@@ -48,8 +42,12 @@ def login_user(request):
 
     user = authenticate(username=username, password=password)
     if user is not None:
-        login(request, user)  # Django session oluşturur
-        return Response({"detail": "Giriş başarılı."}, status=status.HTTP_200_OK)
+        login(request, user)
+        staff_flag = user.is_staff
+        return Response({
+            "detail": "Giriş başarılı.",
+            "is_staff": staff_flag
+        }, status=200)
     else:
         return Response({"detail": "Geçersiz kullanıcı adı veya şifre."},
                         status=status.HTTP_400_BAD_REQUEST)
@@ -317,6 +315,46 @@ from rest_framework import status
 from django.views.decorators.csrf import csrf_exempt
 from .models import Product, UserStock, StockTransaction
 from django.contrib.auth.models import User
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def admin_add_product(request):
+    """
+    POST /api/admin_add_product/
+    Body: { "part_code": "1007", "name": "Yeni Ürün", "quantity": 5 }
+    Sadece admin (is_staff) kullanıcı ekleyebilir/güncelleyebilir.
+    """
+    data = request.data
+    part_code = data.get('part_code')
+    name = data.get('name')
+    qty = data.get('quantity', 0)
+
+    if not part_code or not name:
+        return Response({"detail": "part_code ve name zorunlu."}, status=400)
+
+    try:
+        qty = int(qty)
+    except ValueError:
+        return Response({"detail": "Geçersiz quantity"}, status=400)
+
+    from .models import Product
+    product, created = Product.objects.get_or_create(
+        part_code=part_code,
+        defaults={'name': name, 'quantity': qty}
+    )
+    if not created:
+        # Ürün zaten vardı, stoğunu arttırıp ismini güncelle
+        product.name = name
+        product.quantity += qty
+        product.save()
+
+    return Response({"detail": "Ürün eklendi/güncellendi."}, status=200)
+
+
+
+
+
 
 @csrf_exempt
 @api_view(['POST'])

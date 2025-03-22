@@ -16,11 +16,26 @@ class _HomeScreenState extends State<HomeScreen> {
   // Debounce timer, her karakter girişinden sonra biraz bekleyip arama yapacağız
   Timer? _debounce;
 
+  // Bu değişken, admin olup olmadığımızı tutacak
+  bool _isStaff = false;
+
   @override
   void initState() {
     super.initState();
     // Her metin değişikliğinde _onSearchChanged tetiklenir
     _searchController.addListener(_onSearchChanged);
+
+    // Ana ekrana geldiğimizde, arguments olarak is_staff'ı alalım
+    // Bunu initState'de yapabiliriz (ancak BuildContext'e erişim için didChangeDependencies de kullanılabilir).
+    // Basit yol: Future.microtask(() { read arguments });
+    Future.microtask(() {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is bool) {
+        setState(() {
+          _isStaff = args;
+        });
+      }
+    });
   }
 
   @override
@@ -157,7 +172,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(title: Text('Ana Ekran')),
       body: Column(
         children: [
-          // Üst kısım: Arama kutusu + Transfer butonu yan yana
+          // Üst kısım: Arama kutusu + Transfer + (Admin Paneli) butonları yan yana
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: Row(
@@ -170,13 +185,25 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 SizedBox(width: 8),
-                // Transfer butonu
+                // Transfer / Kullanım butonu (herkese açık)
                 ElevatedButton(
                   onPressed: () {
                     Navigator.pushNamed(context, '/transfer_usage');
                   },
                   child: Text('Transfer / Kullanım'),
                 ),
+
+                SizedBox(width: 8),
+
+                // Eğer isStaff true ise Admin Paneli butonu da gösterelim
+                if (_isStaff)
+                  ElevatedButton(
+                    onPressed: () {
+                      // henüz /admin_panel rotası yok, istersen ekle
+                      Navigator.pushNamed(context, '/admin_panel');
+                    },
+                    child: Text('Admin Paneli'),
+                  ),
               ],
             ),
           ),

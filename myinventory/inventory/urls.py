@@ -8,7 +8,7 @@ from .views import search_product
 
 
 urlpatterns = [
-    path('', views.index, name='index'),
+    
     path('api/register/', register_user, name='register_user'),
     path('login/', auth_views.LoginView.as_view(template_name='inventory/login.html'), name='login'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),

@@ -164,35 +164,51 @@ def forgot_password_user(request):
 
 @csrf_exempt
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def search_product(request):
+    """
+    GET /api/search_product/?q=...
+    1) 'q' parametresi boş ise 400 döner.
+    2) Ürünleri part_code veya name içinde arar.
+    3) Her ürün için 'car_stocks' listesi ekler, 
+       orada kullanıcı adı ve quantity bilgisi gösterir.
+    4) Eğer sonuç yoksa boş liste döndürür (200).
+    """
     query = request.GET.get('q', '').strip()
     if not query:
+        # Arama terimi boşsa 400 döndürelim
         return Response({"detail": "Arama terimi boş olamaz."}, status=status.HTTP_400_BAD_REQUEST)
 
     products = Product.objects.filter(
         Q(part_code__icontains=query) | Q(name__icontains=query)
     )
 
-    # Burada bir serializer kullanabiliriz veya elle JSON oluşturabiliriz
     results = []
     for p in products:
+        # Bu ürün ana depodaki miktar:
+        main_stock_qty = p.quantity
+
+        # Kullanıcı stoklarını bulalım:
+        user_stocks = UserStock.objects.filter(product=p)
+        # Her user_stock için { "username": ..., "quantity": ... }
+        car_stocks_list = []
+        for us in user_stocks:
+            car_stocks_list.append({
+                "username": us.user.username,
+                "quantity": us.quantity
+            })
+
         results.append({
             "id": p.id,
             "part_code": p.part_code,
             "name": p.name,
-            "quantity": p.quantity,  # ana depodaki miktar
+            "quantity": main_stock_qty,  # Ana stok miktarı
+            "car_stocks": car_stocks_list  # Bu ürünü tutan kullanıcıların stoğu
         })
 
+    # Eğer products boşsa results da boş olur. 200 döndürür, Flutter bunu işleyebilir.
     return Response(results, status=status.HTTP_200_OK)
 
-
-# Mevcut index view'imiz (ana stok listesini gösteren):
-from .models import Product
-
-
-def index(request):
-    products = Product.objects.all()
-    return render(request, 'inventory/index.html', {'products': products})
 
 
 @staff_member_required

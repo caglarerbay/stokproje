@@ -77,6 +77,80 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _takeProduct(int productId, int quantity) async {
+    final url = Uri.parse('http://127.0.0.1:8000/take_product/$productId/');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'quantity': quantity}),
+      );
+      if (response.statusCode == 200) {
+        print('Alma işlemi başarılı');
+        // Listeyi yenilemek için tekrar arama yap
+        _searchProduct();
+      } else {
+        print('Alma işlemi hatası: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Sunucuya erişilemedi (takeProduct): $e');
+    }
+  }
+
+  Future<void> _returnProduct(int productId, int quantity) async {
+    final url = Uri.parse('http://127.0.0.1:8000/return_product/$productId/');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'quantity': quantity}),
+      );
+      if (response.statusCode == 200) {
+        print('Bırakma işlemi başarılı');
+        _searchProduct();
+      } else {
+        print('Bırakma işlemi hatası: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Sunucuya erişilemedi (returnProduct): $e');
+    }
+  }
+
+  void _showQuantityDialog(bool isTake, int productId) {
+    int _tempQty = 1;
+    showDialog(
+      context: context,
+      builder:
+          (_) => AlertDialog(
+            title: Text(isTake ? 'Depodan Alma' : 'Depoya Bırakma'),
+            content: TextField(
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(labelText: 'Miktar'),
+              onChanged: (val) {
+                _tempQty = int.tryParse(val) ?? 1;
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('İptal'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  if (isTake) {
+                    _takeProduct(productId, _tempQty);
+                  } else {
+                    _returnProduct(productId, _tempQty);
+                  }
+                },
+                child: Text('Onayla'),
+              ),
+            ],
+          ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -114,7 +188,34 @@ class _HomeScreenState extends State<HomeScreen> {
                             product['car_stocks'] as List<dynamic>? ?? [];
 
                         return ExpansionTile(
-                          title: Text('${product['name']}'),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${product['name']} (Kod: ${product['part_code']})',
+                                ),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.download),
+                                tooltip: 'Depodan Al',
+                                onPressed:
+                                    () => _showQuantityDialog(
+                                      true,
+                                      product['id'],
+                                    ),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.upload),
+                                tooltip: 'Depoya Bırak',
+                                onPressed:
+                                    () => _showQuantityDialog(
+                                      false,
+                                      product['id'],
+                                    ),
+                              ),
+                            ],
+                          ),
+
                           subtitle: Text(
                             'Kod: ${product['part_code']} | Ana Stok: ${product['quantity']}',
                           ),
@@ -136,6 +237,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         );
                       },
                     ),
+          ),
+
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pushNamed(context, '/transfer_usage');
+            },
+            child: Text('Transfer / Kullanım'),
           ),
         ],
       ),

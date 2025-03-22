@@ -7,6 +7,7 @@ import 'login_screen.dart';
 import 'forgot_password_screen.dart';
 // Eğer home_screen.dart varsa import et
 import 'home_screen.dart';
+import 'transfer_usage_screen.dart';
 
 void main() {
   runApp(MyApp());
@@ -24,6 +25,7 @@ class MyApp extends StatelessWidget {
         '/register': (context) => RegisterScreen(),
         '/forgot_password': (context) => ForgotPasswordScreen(),
         '/home': (context) => HomeScreen(),
+        '/transfer_usage': (context) => TransferUsageScreen(),
       },
       // Eğer “/home” gibi bir ekrana gideceksen, oraya da widget eklemen lazım
       // Bu satırlar senin diğer dosyalarında tanımlı widget'lara işaret etmeli

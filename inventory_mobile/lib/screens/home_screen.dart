@@ -18,7 +18,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // Admin veya normal kullanıcı?
   bool _isStaff = false;
 
-  // Eğer token kullanacaksanız buraya ekleyebilirsiniz:
+  // Login ekranından aldığımız token
   String? _token;
 
   @override
@@ -29,15 +29,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _searchController.addListener(_onSearchChanged);
 
     // arguments'dan isStaff ve token alalım
-    // initState içinde BuildContext güvenli değil,
-    // bu yüzden Future.microtask ile alıyoruz.
     Future.microtask(() {
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args is Map) {
         // Örn: { "token": "...", "staff_flag": true }
         setState(() {
           _isStaff = args["staff_flag"] ?? false;
-          _token = args["token"]; // eğer login_screen'den token gönderdiyseniz
+          _token = args["token"]; // login_screen.dart'tan gelen token
         });
       }
     });
@@ -73,11 +71,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       // Eğer endpoint IsAuthenticated ise token header ekleyin:
-      // final response = await http.get(url, headers: {
-      //   'Content-Type': 'application/json',
-      //   'Authorization': 'Token $_token',
-      // });
-      final response = await http.get(url); // eğer token gerekmezse
+      // _token boş mu kontrol edebilirsiniz:
+      final headers = {'Content-Type': 'application/json'};
+      if (_token != null && _token!.isNotEmpty) {
+        headers['Authorization'] = 'Token $_token';
+      }
+
+      final response = await http.get(url, headers: headers);
 
       if (response.statusCode == 200) {
         final List data = json.decode(utf8.decode(response.bodyBytes));
@@ -106,13 +106,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _takeProduct(int productId, int quantity) async {
-    final url = Uri.parse('${ApiConstants.baseUrl}/take_product/$productId/');
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}/api/take_product/$productId/',
+    );
     try {
+      // Token eklemek isterseniz yine ekleyebilirsiniz:
+      final headers = {'Content-Type': 'application/json'};
+      if (_token != null && _token!.isNotEmpty) {
+        headers['Authorization'] = 'Token $_token';
+      }
+
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: json.encode({'quantity': quantity}),
       );
+
       if (response.statusCode == 200) {
         print('Alma işlemi başarılı');
         _searchProduct(); // Yeniden arama
@@ -125,11 +134,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _returnProduct(int productId, int quantity) async {
-    final url = Uri.parse('${ApiConstants.baseUrl}/return_product/$productId/');
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}/api/return_product/$productId/',
+    );
     try {
+      final headers = {'Content-Type': 'application/json'};
+      if (_token != null && _token!.isNotEmpty) {
+        headers['Authorization'] = 'Token $_token';
+      }
+
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: json.encode({'quantity': quantity}),
       );
       if (response.statusCode == 200) {
@@ -214,10 +230,15 @@ class _HomeScreenState extends State<HomeScreen> {
             // Transfer/Kullanım butonu
             ElevatedButton(
               onPressed: () {
-                Navigator.pushNamed(context, '/transfer_usage');
+                Navigator.pushNamed(
+                  context,
+                  '/transfer_usage',
+                  arguments: {"token": _token, "staff_flag": _isStaff},
+                );
               },
               child: Text('Transfer / Kullanım'),
             ),
+
             SizedBox(height: 8),
 
             // Admin Panel butonu (sadece isStaff true ise)

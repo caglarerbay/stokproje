@@ -1,6 +1,6 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import '../utils/api_constants.dart'; // api_constants dosyan buradaysa
+import 'api_constants.dart'; // api_constants dosyan buradaysa
 
 class AuthService {
   // Login fonksiyonu

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import '../services/api_constants.dart';
 
 class TransferUsageScreen extends StatefulWidget {
   @override
@@ -9,28 +10,51 @@ class TransferUsageScreen extends StatefulWidget {
 }
 
 class _TransferUsageScreenState extends State<TransferUsageScreen> {
-  // 1) Kişisel stok listesi
+  // Kişisel stok listesi
   List<dynamic> _myStock = [];
 
-  // 2) Tüm kullanıcılar listesi (hedef kullanıcı seçmek için)
+  // Tüm kullanıcılar listesi (hedef kullanıcı seçmek için)
   List<String> _users = [];
 
   // Hata mesajını göstermek istersen
   String? _errorMessage;
 
+  // Bu ekranda kullanacağımız token
+  String? _token;
+
   @override
   void initState() {
     super.initState();
-    // Ekran açıldığında stoğumu çek + user list çek
-    _fetchMyStock();
-    _fetchUsers();
+
+    // ARGÜMANLARDAN TOKEN ALALIM:
+    Future.microtask(() {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map) {
+        // Örneğin: { "token": "...", "staff_flag": true }
+        _token = args["token"];
+        // Şimdi token'ımız var, stoğumuzu ve user list'i çekebiliriz
+        _fetchMyStock();
+        _fetchUsers();
+      } else {
+        // Argüman yoksa -> hata veya fallback
+        setState(() {
+          _errorMessage = "Token alınamadı, lütfen tekrar giriş yapın.";
+        });
+      }
+    });
   }
 
-  // 3) Kişisel stoğu çek
+  // Kişisel stoğu çek
   Future<void> _fetchMyStock() async {
-    final url = Uri.parse('http://127.0.0.1:8000/api/my_stock/');
+    final url = Uri.parse('${ApiConstants.baseUrl}/api/my_stock/');
+
     try {
-      final response = await http.get(url);
+      final headers = {'Content-Type': 'application/json'};
+      if (_token != null && _token!.isNotEmpty) {
+        headers['Authorization'] = 'Token $_token';
+      }
+
+      final response = await http.get(url, headers: headers);
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
@@ -49,33 +73,50 @@ class _TransferUsageScreenState extends State<TransferUsageScreen> {
     }
   }
 
-  // 4) Kullanıcı listesini çek
+  // Kullanıcı listesini çek
   Future<void> _fetchUsers() async {
-    final url = Uri.parse('http://127.0.0.1:8000/api/user_list/');
+    final url = Uri.parse('${ApiConstants.baseUrl}/api/user_list/');
     try {
-      final response = await http.get(url);
+      final headers = {'Content-Type': 'application/json'};
+      if (_token != null && _token!.isNotEmpty) {
+        headers['Authorization'] = 'Token $_token';
+      }
+
+      final response = await http.get(url, headers: headers);
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
         final List<dynamic> userList = data['users'];
         setState(() {
           _users = userList.map((u) => u.toString()).toList();
-          _users.remove("testuser"); // sabit user'ı listeden çıkar
+          // isterseniz _users.remove("testuser"); vs.
         });
       } else {
-        print('Kullanıcı listesi çekme hatası: ${response.statusCode}');
+        setState(() {
+          _errorMessage =
+              'Kullanıcı listesi çekme hatası: ${response.statusCode}';
+        });
       }
     } catch (e) {
-      print('Sunucuya erişilemedi (user_list): $e');
+      setState(() {
+        _errorMessage = 'Sunucuya erişilemedi (user_list): $e';
+      });
     }
   }
 
-  // 5) Kullanım isteği
+  // Kullanım isteği
   Future<void> _useProduct(int productId, int qty) async {
-    final url = Uri.parse('http://127.0.0.1:8000/api/use_product/$productId/');
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}/api/use_product/$productId/',
+    );
     try {
+      final headers = {'Content-Type': 'application/json'};
+      if (_token != null && _token!.isNotEmpty) {
+        headers['Authorization'] = 'Token $_token';
+      }
+
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: json.encode({'quantity': qty}),
       );
       if (response.statusCode == 200) {
@@ -94,19 +135,24 @@ class _TransferUsageScreenState extends State<TransferUsageScreen> {
     }
   }
 
-  // 6) Transfer isteği
+  // Transfer isteği
   Future<void> _transferProduct(
     int productId,
     String targetUser,
     int qty,
   ) async {
     final url = Uri.parse(
-      'http://127.0.0.1:8000/api/transfer_product/$productId/',
+      '${ApiConstants.baseUrl}/api/transfer_product/$productId/',
     );
     try {
+      final headers = {'Content-Type': 'application/json'};
+      if (_token != null && _token!.isNotEmpty) {
+        headers['Authorization'] = 'Token $_token';
+      }
+
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: json.encode({'quantity': qty, 'target_username': targetUser}),
       );
       if (response.statusCode == 200) {
@@ -124,7 +170,7 @@ class _TransferUsageScreenState extends State<TransferUsageScreen> {
     }
   }
 
-  // 7) Kullanım diyalogu
+  // Kullanım diyalogu
   void _showUseDialog(int productId) {
     int _tempQty = 1;
     showDialog(
@@ -156,7 +202,7 @@ class _TransferUsageScreenState extends State<TransferUsageScreen> {
     );
   }
 
-  // 8) Transfer diyalogu (dropdown)
+  // Transfer diyalogu (dropdown)
   void _showTransferDialog(int productId) {
     int _tempQty = 1;
     String? _selectedUser; // diyalog içi değişken
@@ -183,7 +229,6 @@ class _TransferUsageScreenState extends State<TransferUsageScreen> {
                           );
                         }).toList(),
                     onChanged: (val) {
-                      // Bu setStateDialog, dialog içi yenileme
                       setStateDialog(() {
                         _selectedUser = val;
                       });
@@ -223,7 +268,7 @@ class _TransferUsageScreenState extends State<TransferUsageScreen> {
     );
   }
 
-  // 9) Hata diyaloğu
+  // Hata diyaloğu
   void _showErrorDialog(String message) {
     showDialog(
       context: context,

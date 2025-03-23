@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as DefaultUserAdmin
 
 from .models import Product, UserStock, StockTransaction, DailyAccessCode
+from .models import AppSettings
 
 User = get_user_model()
 
@@ -40,3 +41,15 @@ class StockTransactionAdmin(admin.ModelAdmin):
 @admin.register(DailyAccessCode)
 class DailyAccessCodeAdmin(admin.ModelAdmin):
     list_display = ('date', 'code')
+
+
+# admin.py
+
+
+@admin.register(AppSettings)
+class AppSettingsAdmin(admin.ModelAdmin):
+    list_display = ("id", "critical_stock_email", "export_stock_email")
+
+    # Tek satır tutmak istiyorsanız, 
+    # "add" butonunu kapatmak veya "singleton" yaklaşımı uygulamak için 
+    # override edebilirsiniz. Ama basit haliyle bu da iş görür.

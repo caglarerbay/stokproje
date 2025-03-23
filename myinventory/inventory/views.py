@@ -23,6 +23,8 @@ from rest_framework.response import Response
 from django.contrib.auth import authenticate, login
 from django.db.models import Q
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
+from .models import AppSettings
+
 
 
 
@@ -211,26 +213,28 @@ def search_product(request):
 
 @csrf_exempt
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAdminUser])  # Sadece admin görebilsin
 def critical_stock_api(request):
     """
     GET /api/critical_stock_api/
-    Kritik stoktaki ürünleri JSON döndürür (sadece admin).
+    quantity <= min_limit olan ürünleri JSON döndürür.
     """
     from django.db.models import F
-    critical_products = Product.objects.filter(quantity__lt=F('min_limit'))
+    critical_products = Product.objects.filter(quantity__lte=F('min_limit'))
 
     results = []
     for p in critical_products:
         results.append({
+            "id": p.id,
             "part_code": p.part_code,
             "name": p.name,
             "quantity": p.quantity,
             "min_limit": p.min_limit,
-            "order_placed": p.order_placed,
+            "order_placed": p.order_placed
         })
 
     return Response({"critical_products": results}, status=200)
+
 
 
 
@@ -501,52 +505,55 @@ def admin_adjust_user_stock(request):
 def admin_add_product(request):
     """
     POST /api/admin_add_product/
-    Body: { "part_code": "ABC123", "name": "Yeni Ürün", "quantity": 5 }
-    Sadece yeni ürün ekler; eğer product zaten varsa hata döndürür.
+    Body: { "part_code":"ABC", "name":"Deneme", "quantity":5, "min_limit":10 } (opsiyonel)
     """
     data = request.data
     part_code = data.get('part_code')
     name = data.get('name')
     qty = data.get('quantity', 0)
+    # Opsiyonel min_limit, yoksa 0
+    min_limit = data.get('min_limit', 0)
 
-    # Zorunlu alan kontrolü
-    if not part_code or not name:
-        return Response({"detail": "part_code ve name zorunlu."}, status=400)
-
-    # Miktarı parse et
+    # parse integer
     try:
         qty = int(qty)
     except ValueError:
-        return Response({"detail": "Geçersiz quantity"}, status=400)
+        return Response({"detail": "quantity geçersiz"}, status=400)
 
-    # Ürün zaten var mı?
+    try:
+        min_limit = int(min_limit)
+    except ValueError:
+        return Response({"detail": "min_limit geçersiz"}, status=400)
+
+    # Ürün zaten varsa hata ver (yalnızca yeni ekleme için)
     if Product.objects.filter(part_code=part_code).exists():
-        return Response({
-            "detail": "Bu part_code zaten mevcut. Lütfen stok güncelleme endpointini kullanın."
-        }, status=400)
+        return Response({"detail": "Bu part_code zaten mevcut. Stok güncelleme kullanın."}, status=400)
 
     # Yeni ürün oluştur
     product = Product.objects.create(
         part_code=part_code,
         name=name,
-        quantity=qty
+        quantity=qty,
+        min_limit=min_limit
     )
 
-    # Transaction kaydı (yeni ürün eklendi)
+    # Transaction kaydı: NEW_PRODUCT
     StockTransaction.objects.create(
         product=product,
         transaction_type="IN",
         quantity=qty,
-        user=request.user,  # admin
+        user=request.user,
         description="Yeni ürün eklendi (admin_add_product).",
         current_quantity=product.quantity
     )
 
     return Response({
-        "detail": "Yeni ürün başarıyla eklendi.",
+        "detail": "Yeni ürün eklendi.",
         "part_code": part_code,
-        "quantity": qty
+        "quantity": qty,
+        "min_limit": min_limit
     }, status=200)
+
 
 
 @csrf_exempt
@@ -597,6 +604,38 @@ def admin_update_stock(request, product_id):
         "new_quantity": product.quantity
     }, status=200)
 
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def admin_update_min_limit(request, product_id):
+    """
+    POST /api/admin_update_min_limit/<product_id>/
+    Body: { "new_min_limit": 10 }
+    """
+    data = request.data
+    new_min_limit = data.get('new_min_limit', None)
+
+    if new_min_limit is None:
+        return Response({"detail": "new_min_limit alanı zorunlu."}, status=400)
+
+    try:
+        new_min_limit = int(new_min_limit)
+    except ValueError:
+        return Response({"detail": "new_min_limit sayı olmalı."}, status=400)
+
+    product = get_object_or_404(Product, id=product_id)
+    old_limit = product.min_limit
+    product.min_limit = new_min_limit
+    product.save()
+
+    return Response({
+        "detail": "min_limit güncellendi.",
+        "old_min_limit": old_limit,
+        "new_min_limit": new_min_limit,
+        "product_id": product.id,
+        "product_part_code": product.part_code
+    }, status=200)
 
 
 
@@ -852,55 +891,53 @@ def transaction_log_api(request):
     return Response({"logs": results}, status=200)
 
 
-
-
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([IsAdminUser])
-def send_critical_stock_email_api(request):
+@permission_classes([IsAdminUser])  # Sadece admin (is_staff=True) erişebilsin
+def admin_update_app_settings(request):
     """
-    POST /api/send_critical_stock_email_api/
-    Kritik stok uyarı mailini gönderir, JSON cevap döndürür.
+    POST /api/admin_update_app_settings/
+    Body: { "recipient_email": "yeniadres@example.com" }
+
+    Bu fonksiyon, AppSettings tablosundaki mail adresini günceller
+    (veya hiç yoksa oluşturur).
     """
-    from django.db.models import F
-    critical_products = Product.objects.filter(quantity__lt=F('min_limit'))
+    data = request.data
+    new_email = data.get("recipient_email", None)
 
-    not_ordered = critical_products.filter(order_placed=False)
-    ordered = critical_products.filter(order_placed=True)
+    if not new_email:
+        return Response({"detail": "recipient_email alanı zorunlu."}, status=400)
 
-    subject = "Kritik Stok Uyarısı"
-    message = "Kritik Stok Durumu Uyarısı:\n\n"
+    # Örnek: email formatını kontrol etmek isterseniz (isteğe bağlı)
+    # from django.core.validators import validate_email
+    # try:
+    #     validate_email(new_email)
+    # except:
+    #     return Response({"detail": "Geçersiz email formatı."}, status=400)
 
-    # Siparişi Çekilmemiş Ürünler:
-    message += "Siparişi Çekilmemiş Ürünler:\n"
-    if not_ordered.exists():
-        header = f"{'Parça Kodu':<12} {'Ürün İsmi':<20} {'Mevcut Adet':>12} {'Min Limit':>10}\n"
-        divider = "-" * 60 + "\n"
-        message += divider + header + divider
-        for product in not_ordered:
-            message += f"{product.part_code:<12} {product.name:<20} {product.quantity:>12} {product.min_limit:>10}\n"
-        message += divider + "\n"
+    # AppSettings modelini import et
+    from .models import AppSettings
+    app_settings = AppSettings.objects.first()
+
+    if not app_settings:
+        # Eğer hiç kayıt yoksa, yeni bir tane oluşturuyoruz
+        app_settings = AppSettings.objects.create(recipient_email=new_email)
+        created = True
     else:
-        message += "Bu kategori için kritik stok ürünü bulunmamaktadır.\n\n"
+        # Varsa güncelliyoruz
+        old_email = app_settings.recipient_email
+        app_settings.recipient_email = new_email
+        app_settings.save()
+        created = False
 
-    # Siparişi Çekilmiş Ürünler:
-    message += "Siparişi Çekilmiş Ürünler, Tedariği Bekleniyor:\n"
-    if ordered.exists():
-        header = f"{'Parça Kodu':<12} {'Ürün İsmi':<20} {'Mevcut Adet':>12} {'Min Limit':>10}\n"
-        divider = "-" * 60 + "\n"
-        message += divider + header + divider
-        for product in ordered:
-            message += f"{product.part_code:<12} {product.name:<20} {product.quantity:>12} {product.min_limit:>10}\n"
-        message += divider + "\n"
-    else:
-        message += "Bu kategori için kritik stok ürünü bulunmamaktadır.\n\n"
+    return Response({
+        "detail": "Ayarlar güncellendi." if not created else "Ayarlar oluşturuldu.",
+        "recipient_email": app_settings.recipient_email
+    }, status=200)
 
-    recipient = settings.CRITICAL_STOCK_ALERT_RECIPIENT
-    send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient])
 
-    not_ordered.update(order_placed=True)
 
-    return Response({"detail": "Kritik stok uyarı maili gönderildi."}, status=200)
+
 
 
 
@@ -908,31 +945,119 @@ def send_critical_stock_email_api(request):
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def send_excel_report_email_api(request):
-    """
-    POST /api/send_excel_report_email_api/
-    Kritik stok Excel raporunu mail atar, JSON cevap döndürür.
-    """
     from django.db.models import F
-    critical_products = Product.objects.filter(quantity__lt=F('min_limit'))
+    critical_products = Product.objects.filter(quantity__lte=F('min_limit'))
     if not critical_products.exists():
         return Response({"detail": "Kritik stok ürünü bulunamadı. Mail gönderilmeyecek."}, status=400)
 
+    # create_excel_report, mail gövdesi vs. aynen
     excel_file = create_excel_report(critical_products)
     excel_content = excel_file.read()
     excel_file.seek(0)
 
-    subject = "Kritik Stok Excel Raporu"
-    body = "Ek'te, kritik stok raporunu bulabilirsiniz."
-    email = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, [settings.CRITICAL_STOCK_ALERT_RECIPIENT])
-    email.attach('kritik_stok_raporu.xlsx', excel_content, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    # Alıcı: app_settings.critical_stock_email
+    from .models import AppSettings
+    app_settings = AppSettings.objects.first()
+    if app_settings and app_settings.critical_stock_email:
+        recipient_email = app_settings.critical_stock_email
+    else:
+        recipient_email = "nuk.stoktakip@gmail.com"  # fallback
+
+    email = EmailMessage(
+        "Kritik Stok Excel Raporu",
+        "Ek'te kritik stok raporunu bulabilirsiniz.",
+        settings.DEFAULT_FROM_EMAIL,
+        [recipient_email]
+    )
+    # Dosya adında tarih eklemek isterseniz
+    from django.utils import timezone
+    date_str = timezone.now().strftime("%d-%m-%Y")
+    filename = f"kritik_stok_raporu_{date_str}.xlsx"
+    email.attach(filename, excel_content, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     email.send()
 
-    # Push bildirim
-    notification_title = "Kritik Stok Uyarısı"
-    notification_body = "Bazı ürünlerin stokları kritik seviyeye düştü. Lütfen kontrol ediniz."
-    send_push_notification(notification_title, notification_body)
+    # order_placed=True update vb.
 
-    return Response({"detail": "Kritik stok Excel raporlu e-posta ve push bildirim gönderildi."}, status=200)
+    return Response({"detail": "Kritik stok Excel raporu maili gönderildi."}, status=200)
+
+
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def send_full_stock_report_api(request):
+    """
+    POST /api/send_full_stock_report/
+    Tek bir mailde:
+      - Ana stok (ana_stok_{tarih}.xlsx)
+      - Her kullanıcının stoğu ({username}_stok_{tarih}.xlsx) 
+    şeklinde çoklu ek gönderir.
+    Alıcı -> AppSettings.export_stock_email
+    """
+    from django.utils import timezone
+    from django.contrib.auth.models import User
+    from .reports import create_excel_for_products, create_excel_for_single_user
+
+    # 1) Tarih (gün-ay-yıl)
+    current_date_str = timezone.now().strftime("%d-%m-%Y")
+
+    # 2) Ana stok verisi
+    products = Product.objects.all()
+    excel_file_products = create_excel_for_products(products)
+    content_products = excel_file_products.read()
+    ana_stok_filename = f"ana_stok_{current_date_str}.xlsx"
+
+    # 3) Tüm kullanıcılar
+    users = User.objects.all().order_by('username')
+
+    # 4) Mail alıcısı (export_stock_email)
+    app_settings = AppSettings.objects.first()
+    if app_settings and app_settings.export_stock_email:
+        recipient_email = app_settings.export_stock_email
+    else:
+        recipient_email = "fallback@example.com"
+
+    # 5) Mail oluştur
+    email = EmailMessage(
+        subject="Tüm Stok Raporu",
+        body="Ek'te ana stok ve her kullanıcının stoğu ayrı Excel dosyalarında yer almaktadır.",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[recipient_email]
+    )
+
+    # 6) Ana stok ekini ekle
+    email.attach(
+        ana_stok_filename,
+        content_products,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    # 7) Her kullanıcı için ayrı Excel ekle
+    for u in users:
+        user_stocks = UserStock.objects.filter(user=u)
+        if not user_stocks.exists():
+            # Boş stoğu olan kullanıcı için Excel oluşturmak istemiyorsanız continue diyebilirsiniz.
+            continue
+
+        excel_file_user = create_excel_for_single_user(u, user_stocks)
+        content_user = excel_file_user.read()
+
+        user_filename = f"{u.username}_stok_{current_date_str}.xlsx"
+        email.attach(
+            user_filename,
+            content_user,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    # 8) Mail gönder
+    email.send()
+
+    return Response({"detail": "Ana stok ve kullanıcı stokları ayrı Excel dosyalarında gönderildi."}, status=200)
+
+
+
+
 
 
 

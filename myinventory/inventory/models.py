@@ -8,19 +8,27 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 from django.db import models
 # Ürün modelimiz: ana stokta yer alan parçalar.
+
 class Product(models.Model):
     part_code = models.CharField(max_length=50, unique=True)
     name = models.CharField(max_length=200)
     quantity = models.PositiveIntegerField(default=0)
+    
+    # Varsayılan olarak 0, yani quantity <= 0 olursa kritik stok.
     min_limit = models.PositiveIntegerField(
-        default=1,
-        help_text="Ürün miktarı bu değerin altına düşerse kritik stok durumu oluşur."
+        default=0,
+        help_text="Bu değer 0 ise ürün adedi 0 olduğunda kritik stok sayılır. "
+                  "Eğer 5 gibi bir değer girilirse ürün adedi 5 veya altına düştüğünde kritik stok sayılır."
     )
-    # Yeni alan: siparişin çekilip çekilmediğini belirtir.
-    order_placed = models.BooleanField(default=False, help_text="Bu ürün için sipariş çekildiyse True olur.")
+    
+    order_placed = models.BooleanField(
+        default=False, 
+        help_text="Bu ürün için sipariş çekildiyse True olur."
+    )
 
     def __str__(self):
         return f"{self.part_code} - {self.name}"
+
 
 
 
@@ -83,4 +91,22 @@ class Device(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.device_token}"
+
+
+
+
+class AppSettings(models.Model):
+    # Kritik stok raporunun gideceği adres
+    critical_stock_email = models.EmailField(
+        default="kritik@example.com",
+        help_text="Kritik stok raporu bu mail adresine gönderilecek."
+    )
+    # Dışa aktar (tüm stok) raporunun gideceği adres
+    export_stock_email = models.EmailField(
+        default="export@example.com",
+        help_text="Tüm stok raporu bu mail adresine gönderilecek."
+    )
+
+    def __str__(self):
+        return "Uygulama Ayarları"
 

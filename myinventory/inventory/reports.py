@@ -1,5 +1,6 @@
 # inventory/utils.py
 import openpyxl
+import io
 from openpyxl.styles import Alignment
 from io import BytesIO
 from pyfcm import FCMNotification
@@ -33,6 +34,53 @@ def create_excel_report(critical_products):
     wb.save(output)
     output.seek(0)
     return output
+
+
+def create_excel_for_products(products):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Ana Stok"
+
+    headers = ["part_code", "name", "quantity", "min_limit", "order_placed"]
+    for col_idx, header in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx, value=header)
+
+    row_idx = 2
+    for p in products:
+        ws.cell(row=row_idx, column=1, value=p.part_code)
+        ws.cell(row=row_idx, column=2, value=p.name)
+        ws.cell(row=row_idx, column=3, value=p.quantity)
+        ws.cell(row=row_idx, column=4, value=p.min_limit)
+        ws.cell(row=row_idx, column=5, value=str(p.order_placed))
+        row_idx += 1
+
+    excel_file = io.BytesIO()
+    wb.save(excel_file)
+    excel_file.seek(0)
+    return excel_file
+
+def create_excel_for_single_user(user, user_stocks):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"{user.username} Stok"
+
+    headers = ["part_code", "product_name", "quantity"]
+    for col_idx, header in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx, value=header)
+
+    row_idx = 2
+    for us in user_stocks:
+        ws.cell(row=row_idx, column=1, value=us.product.part_code)
+        ws.cell(row=row_idx, column=2, value=us.product.name)
+        ws.cell(row=row_idx, column=3, value=us.quantity)
+        row_idx += 1
+
+    excel_file = io.BytesIO()
+    wb.save(excel_file)
+    excel_file.seek(0)
+    return excel_file
+
+
 
 
 def send_push_notification(message_title, message_body):

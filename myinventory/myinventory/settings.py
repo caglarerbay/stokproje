@@ -128,7 +128,7 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'nuk.stoktakip@gmail.com'
 EMAIL_HOST_PASSWORD = 'oxfyfitygatvxaga'
 DEFAULT_FROM_EMAIL = 'nuk.stoktakip@gmail.com'
-CRITICAL_STOCK_ALERT_RECIPIENT = 'nuk.stoktakip@gmail.com'
+
 
 # settings.py
 FCM_API_KEY = 'your_firebase_api_key'

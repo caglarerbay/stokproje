@@ -20,11 +20,16 @@ from django.urls import path
 from django.contrib import admin
 from django.urls import path, include  # include fonksiyonunu unutma!
 
+from django.conf import settings
+from django.conf.urls.static import static
+
+
+
+
 urlpatterns = [
-    
+    path('admin/', admin.site.urls),
     path('', include('inventory.urls')),  # Uygulamanın URL'lerini dahil ediyoruz.
     path('api/', include('inventory.urls_api')),
-    path('admin/', admin.site.urls)
      # API endpoint'leri, /api/ prefix'i ile erişilecek
-]
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

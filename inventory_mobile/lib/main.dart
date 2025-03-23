@@ -1,15 +1,15 @@
 ﻿import 'package:flutter/material.dart';
 // Senin register_screen.dart dosyanı import et
-import 'register_screen.dart';
+import 'screens/register_screen.dart';
 // Az önce oluşturduğun login_screen.dart dosyasını import et
-import 'login_screen.dart';
+import 'screens/login_screen.dart';
 // Eğer forgot_password_screen.dart varsa import et
-import 'forgot_password_screen.dart';
+import 'screens/forgot_password_screen.dart';
 // Eğer home_screen.dart varsa import et
-import 'home_screen.dart';
-import 'transfer_usage_screen.dart';
-import 'admin_panel_screen.dart';
-import 'admin_add_product_screen.dart';
+import 'screens/home_screen.dart';
+import 'screens/transfer_usage_screen.dart';
+import 'screens/admin_panel_screen.dart';
+import 'screens/admin_add_product_screen.dart';
 
 void main() {
   runApp(MyApp());

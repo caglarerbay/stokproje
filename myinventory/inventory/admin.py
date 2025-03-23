@@ -25,7 +25,7 @@ class CustomUserAdmin(DefaultUserAdmin):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     # "id" eklenince, admin listesinde "ID" sütunu görünür
-    list_display = ('id', 'part_code', 'name', 'quantity', 'min_limit', 'order_placed')
+    list_display = ('part_code', 'name', 'quantity', 'min_limit', 'order_placed', 'id')
     search_fields = ('part_code', 'name')
 
 # Eğer UserStock'ı ayrı kaydetmek istemiyorsan, kaydetme:

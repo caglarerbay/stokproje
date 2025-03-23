@@ -26,6 +26,13 @@ class Product(models.Model):
         help_text="Bu ürün için sipariş çekildiyse True olur."
     )
 
+
+    image = models.ImageField(
+        upload_to='product_images/',
+        null=True,
+        blank=True
+    )
+    
     def __str__(self):
         return f"{self.part_code} - {self.name}"
 
@@ -92,6 +99,8 @@ class Device(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.device_token}"
 
+
+# models.py
 
 
 

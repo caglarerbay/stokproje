@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
+// YENİ: auth_service.dart import
+import '../services/auth_service.dart';
+
 class LoginScreen extends StatefulWidget {
   @override
   _LoginScreenState createState() => _LoginScreenState();
@@ -14,6 +17,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // YENİ: AuthService örneği
+  final authService = AuthService();
+
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
     _formKey.currentState!.save();
@@ -23,42 +29,24 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final url = Uri.parse(
-      'http://127.0.0.1:8000/api/login/',
-    ); // Django login endpoint
     try {
-      final response = await http.post(
-        url,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({'username': _username, 'password': _password}),
-      );
+      // YENİ: authService.login(...) çağır
+      final data = await authService.login(_username!, _password!);
 
-      if (response.statusCode == 200) {
-        // Giriş başarılı
-        final decoded = json.decode(utf8.decode(response.bodyBytes));
-        // is_staff bilgisini yakalıyoruz (true/false)
-        final bool isStaff = decoded['is_staff'] ?? false;
+      // Giriş başarılı => data içinde {"detail": "...", "is_staff": ...} vs.
+      final bool isStaff = data['is_staff'] ?? false;
 
-        setState(() {
-          _isLoading = false;
-        });
-
-        // Ana ekrana yönlendirelim, isStaff değerini arguments olarak geçiyoruz
-        Navigator.pushReplacementNamed(context, '/home', arguments: isStaff);
-      } else {
-        setState(() {
-          _isLoading = false;
-          final decoded = json.decode(utf8.decode(response.bodyBytes));
-          _errorMessage = decoded['detail'] ?? 'Giriş hatası';
-        });
-      }
-    } catch (e) {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Sunucuya erişilemedi. Hata: $e';
+      });
+
+      // Ana ekrana yönlendir, isStaff'ı argument olarak gönder
+      Navigator.pushReplacementNamed(context, '/home', arguments: isStaff);
+    } catch (e) {
+      // Hata durumunda
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.toString(); // e.g. "Exception: Giriş hatası"
       });
     }
   }

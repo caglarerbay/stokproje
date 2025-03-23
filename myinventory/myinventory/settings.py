@@ -130,6 +130,12 @@ EMAIL_HOST_PASSWORD = 'oxfyfitygatvxaga'
 DEFAULT_FROM_EMAIL = 'nuk.stoktakip@gmail.com'
 
 
+#image upload için gerekli
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+
 # settings.py
 FCM_API_KEY = 'your_firebase_api_key'
 

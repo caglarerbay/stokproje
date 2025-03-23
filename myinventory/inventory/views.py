@@ -35,24 +35,39 @@ from .models import AppSettings
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_user(request):
+    from rest_framework.authtoken.models import Token
+    
     username = request.data.get('username')
     password = request.data.get('password')
 
     if not username or not password:
-        return Response({"detail": "Kullanıcı adı ve şifre zorunludur."},
-                        status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"detail": "Kullanıcı adı ve şifre zorunludur."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     user = authenticate(username=username, password=password)
     if user is not None:
+        # Django'nun session tabanlı login'i (opsiyonel)
         login(request, user)
+        
+        # Token oluştur/al
+        token, created = Token.objects.get_or_create(user=user)
+
+        # staff_flag aynen koruyoruz
         staff_flag = user.is_staff
+        
         return Response({
             "detail": "Giriş başarılı.",
-            "is_staff": staff_flag
-        }, status=200)
+            "token": token.key,        # mobilin kullanacağı token
+            "staff_flag": staff_flag   # eski ismi koruduk
+        }, status=status.HTTP_200_OK)
     else:
-        return Response({"detail": "Geçersiz kullanıcı adı veya şifre."},
-                        status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"detail": "Geçersiz kullanıcı adı veya şifre."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
 
 
 

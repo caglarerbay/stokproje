@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import '../services/api_constants.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -12,27 +13,31 @@ class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   List<dynamic> _searchResults = [];
   String? _errorMessage;
-
-  // Debounce timer, her karakter girişinden sonra biraz bekleyip arama yapacağız
   Timer? _debounce;
 
-  // Bu değişken, admin olup olmadığımızı tutacak
+  // Admin veya normal kullanıcı?
   bool _isStaff = false;
+
+  // Eğer token kullanacaksanız buraya ekleyebilirsiniz:
+  String? _token;
 
   @override
   void initState() {
     super.initState();
-    // Her metin değişikliğinde _onSearchChanged tetiklenir
+
+    // Arama kutusu her değiştiğinde _onSearchChanged
     _searchController.addListener(_onSearchChanged);
 
-    // Ana ekrana geldiğimizde, arguments olarak is_staff'ı alalım
-    // Bunu initState'de yapabiliriz (ancak BuildContext'e erişim için didChangeDependencies de kullanılabilir).
-    // Basit yol: Future.microtask(() { read arguments });
+    // arguments'dan isStaff ve token alalım
+    // initState içinde BuildContext güvenli değil,
+    // bu yüzden Future.microtask ile alıyoruz.
     Future.microtask(() {
       final args = ModalRoute.of(context)?.settings.arguments;
-      if (args is bool) {
+      if (args is Map) {
+        // Örn: { "token": "...", "staff_flag": true }
         setState(() {
-          _isStaff = args;
+          _isStaff = args["staff_flag"] ?? false;
+          _token = args["token"]; // eğer login_screen'den token gönderdiyseniz
         });
       }
     });
@@ -46,10 +51,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onSearchChanged() {
-    // Kullanıcı her karakter girdiğinde burası tetiklenir
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(Duration(milliseconds: 300), () {
-      _searchProduct(); // 300 ms bekleyip arama yap
+      _searchProduct();
     });
   }
 
@@ -63,9 +67,18 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final url = Uri.parse('http://127.0.0.1:8000/api/search_product/?q=$query');
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}/api/search_product/?q=$query',
+    );
+
     try {
-      final response = await http.get(url);
+      // Eğer endpoint IsAuthenticated ise token header ekleyin:
+      // final response = await http.get(url, headers: {
+      //   'Content-Type': 'application/json',
+      //   'Authorization': 'Token $_token',
+      // });
+      final response = await http.get(url); // eğer token gerekmezse
+
       if (response.statusCode == 200) {
         final List data = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
@@ -93,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _takeProduct(int productId, int quantity) async {
-    final url = Uri.parse('http://127.0.0.1:8000/take_product/$productId/');
+    final url = Uri.parse('${ApiConstants.baseUrl}/take_product/$productId/');
     try {
       final response = await http.post(
         url,
@@ -102,8 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (response.statusCode == 200) {
         print('Alma işlemi başarılı');
-        // Listeyi yenilemek için tekrar arama yap
-        _searchProduct();
+        _searchProduct(); // Yeniden arama
       } else {
         print('Alma işlemi hatası: ${response.statusCode}');
       }
@@ -113,7 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _returnProduct(int productId, int quantity) async {
-    final url = Uri.parse('http://127.0.0.1:8000/return_product/$productId/');
+    final url = Uri.parse('${ApiConstants.baseUrl}/return_product/$productId/');
     try {
       final response = await http.post(
         url,
@@ -166,118 +178,122 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _logout() {
+    // Burada token vs. silmek isterseniz yapabilirsiniz
+    // Sonra login ekranına geri dönelim
+    Navigator.pushReplacementNamed(context, '/login');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Ana Ekran')),
-      body: Column(
-        children: [
-          // Üst kısım: Arama kutusu + Transfer + (Admin Paneli) butonları yan yana
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                // Arama kutusu
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(labelText: 'Ürün Kodu/Adı'),
-                  ),
-                ),
-                SizedBox(width: 8),
-                // Transfer / Kullanım butonu (herkese açık)
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pushNamed(context, '/transfer_usage');
-                  },
-                  child: Text('Transfer / Kullanım'),
-                ),
-
-                SizedBox(width: 8),
-
-                // Eğer isStaff true ise Admin Paneli butonu da gösterelim
-                if (_isStaff)
-                  ElevatedButton(
-                    onPressed: () {
-                      // henüz /admin_panel rotası yok, istersen ekle
-                      Navigator.pushNamed(context, '/admin_panel');
-                    },
-                    child: Text('Admin Paneli'),
-                  ),
-              ],
-            ),
-          ),
-
-          // Hata mesajı varsa göster
-          if (_errorMessage != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: Text(_errorMessage!, style: TextStyle(color: Colors.red)),
-            ),
-
-          // Arama sonuçları
-          Expanded(
-            child:
-                _searchResults.isEmpty
-                    ? Center(child: Text('Hiç ürün bulunamadı.'))
-                    : ListView.builder(
-                      itemCount: _searchResults.length,
-                      itemBuilder: (context, index) {
-                        final product = _searchResults[index];
-                        final carStocks =
-                            product['car_stocks'] as List<dynamic>? ?? [];
-
-                        return ExpansionTile(
-                          title: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${product['name']} (Kod: ${product['part_code']})',
-                                ),
-                              ),
-                              IconButton(
-                                icon: Icon(Icons.download),
-                                tooltip: 'Depodan Al',
-                                onPressed:
-                                    () => _showQuantityDialog(
-                                      true,
-                                      product['id'],
-                                    ),
-                              ),
-                              IconButton(
-                                icon: Icon(Icons.upload),
-                                tooltip: 'Depoya Bırak',
-                                onPressed:
-                                    () => _showQuantityDialog(
-                                      false,
-                                      product['id'],
-                                    ),
-                              ),
-                            ],
-                          ),
-                          subtitle: Text(
-                            'Kod: ${product['part_code']} | Ana Stok: ${product['quantity']}',
-                          ),
-                          children: [
-                            if (carStocks.isEmpty)
-                              ListTile(
-                                title: Text(
-                                  'Bu ürünü tutan kullanıcı stoğu yok.',
-                                ),
-                              )
-                            else
-                              ...carStocks.map((cs) {
-                                return ListTile(
-                                  title: Text('Kullanıcı: ${cs['username']}'),
-                                  subtitle: Text('Miktar: ${cs['quantity']}'),
-                                );
-                              }).toList(),
-                          ],
-                        );
-                      },
-                    ),
+      appBar: AppBar(
+        title: Text('Ana Ekran'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.exit_to_app),
+            tooltip: 'Çıkış Yap',
+            onPressed: _logout,
           ),
         ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          children: [
+            // Arama kutusu boydan boya
+            TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                labelText: 'Ürün Kodu/Adı',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            SizedBox(height: 8),
+
+            // Transfer/Kullanım butonu
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pushNamed(context, '/transfer_usage');
+              },
+              child: Text('Transfer / Kullanım'),
+            ),
+            SizedBox(height: 8),
+
+            // Admin Panel butonu (sadece isStaff true ise)
+            if (_isStaff)
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pushNamed(context, '/admin_panel');
+                },
+                child: Text('Admin Paneli'),
+              ),
+            SizedBox(height: 8),
+
+            // Hata mesajı varsa göster
+            if (_errorMessage != null)
+              Text(_errorMessage!, style: TextStyle(color: Colors.red)),
+
+            // Sonuç listesi
+            Expanded(
+              child:
+                  _searchResults.isEmpty
+                      ? Center(child: Text('Hiç ürün bulunamadı.'))
+                      : ListView.builder(
+                        itemCount: _searchResults.length,
+                        itemBuilder: (context, index) {
+                          final product = _searchResults[index];
+                          final carStocks =
+                              product['car_stocks'] as List<dynamic>? ?? [];
+
+                          return ExpansionTile(
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${product['name']} (Kod: ${product['part_code']})',
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: Icon(Icons.download),
+                                  tooltip: 'Depodan Al',
+                                  onPressed:
+                                      () => _showQuantityDialog(
+                                        true,
+                                        product['id'],
+                                      ),
+                                ),
+                                IconButton(
+                                  icon: Icon(Icons.upload),
+                                  tooltip: 'Depoya Bırak',
+                                  onPressed:
+                                      () => _showQuantityDialog(
+                                        false,
+                                        product['id'],
+                                      ),
+                                ),
+                              ],
+                            ),
+                            subtitle: Text('Ana Stok: ${product['quantity']}'),
+                            children: [
+                              if (carStocks.isEmpty)
+                                ListTile(
+                                  title: Text('Bu ürünü tutan kullanıcı yok.'),
+                                )
+                              else
+                                ...carStocks.map((cs) {
+                                  return ListTile(
+                                    title: Text('Kullanıcı: ${cs['username']}'),
+                                    subtitle: Text('Miktar: ${cs['quantity']}'),
+                                  );
+                                }).toList(),
+                            ],
+                          );
+                        },
+                      ),
+            ),
+          ],
+        ),
       ),
     );
   }

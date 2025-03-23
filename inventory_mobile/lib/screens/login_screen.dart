@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
-// YENİ: auth_service.dart import
 import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -17,7 +15,6 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  // YENİ: AuthService örneği
   final authService = AuthService();
 
   Future<void> _submitForm() async {
@@ -30,23 +27,30 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // YENİ: authService.login(...) çağır
       final data = await authService.login(_username!, _password!);
 
-      // Giriş başarılı => data içinde {"detail": "...", "is_staff": ...} vs.
-      final bool isStaff = data['is_staff'] ?? false;
+      // data: {
+      //   "detail": "Giriş başarılı.",
+      //   "staff_flag": true/false,
+      //   "token": "..."
+      // }
+      final bool staffFlag = data['staff_flag'] ?? false;
+      final String? token = data['token'];
 
       setState(() {
         _isLoading = false;
       });
 
-      // Ana ekrana yönlendir, isStaff'ı argument olarak gönder
-      Navigator.pushReplacementNamed(context, '/home', arguments: isStaff);
+      // "token" ve "staff_flag" değerlerini /home rotasına arguments olarak yolluyoruz
+      Navigator.pushReplacementNamed(
+        context,
+        '/home',
+        arguments: {"token": token, "staff_flag": staffFlag},
+      );
     } catch (e) {
-      // Hata durumunda
       setState(() {
         _isLoading = false;
-        _errorMessage = e.toString(); // e.g. "Exception: Giriş hatası"
+        _errorMessage = e.toString();
       });
     }
   }

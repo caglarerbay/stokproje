@@ -29,6 +29,7 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     'localhost',
     'DESKTOP-6L81PLG',
+    '10.0.2.2',
 ]
 
 # Uygulama tanımlamaları

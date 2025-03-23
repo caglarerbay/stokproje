@@ -696,7 +696,7 @@ def take_product(request, product_id):
 
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Artık kimlik doğrulama gerekli
+@permission_classes([IsAuthenticated])  # Artık kimlik doğrulaması gerekli
 def return_product(request, product_id):
     """
     JSON tabanlı iade işlemi:
@@ -704,7 +704,7 @@ def return_product(request, product_id):
     Body: { "quantity": 2 }
 
     Bu fonksiyon, car stoğundan ana stoğa ürün iade eder.
-    Kullanıcı token ile istek yapmalı (request.user).
+    Kullanıcı stoğu 0'a inerse kaydı silinir.
     """
     product = get_object_or_404(Product, id=product_id)
     data = request.data
@@ -715,7 +715,7 @@ def return_product(request, product_id):
     except ValueError:
         return Response({"detail": "Geçersiz quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Artık sabit "testuser" yerine, token'dan gelen kullanıcıyı alıyoruz
+    # Token'dan gelen kullanıcı
     user = request.user
     if not user.is_authenticated:
         return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
@@ -725,12 +725,22 @@ def return_product(request, product_id):
     if not user_stock or user_stock.quantity < qty:
         return Response({"detail": "Kişisel stokta yeterli miktar yok."}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Kullanıcı stoğunu düş
     user_stock.quantity -= qty
     user_stock.save()
 
+    # Sıfıra inmişse sil
+    if user_stock.quantity == 0:
+        user_stock.delete()
+        current_user_qty = 0
+    else:
+        current_user_qty = user_stock.quantity
+
+    # Ana depoyu arttır
     product.quantity += qty
     product.save()
 
+    # Transaction kaydı
     StockTransaction.objects.create(
         product=product,
         transaction_type="RETURN",
@@ -738,10 +748,11 @@ def return_product(request, product_id):
         user=user,
         description="Kullanıcı ürünü ana stoğa iade etti.",
         current_quantity=product.quantity,
-        current_user_quantity=user_stock.quantity
+        current_user_quantity=current_user_qty
     )
 
     return Response({"detail": "Bırakma işlemi başarılı"}, status=status.HTTP_200_OK)
+
 
 
 
@@ -757,6 +768,7 @@ def transfer_product_api(request, product_id):
     Body: { "quantity": 2, "target_username": "kemal" }
 
     Bu fonksiyon, kullanıcı stoğundan başka bir kullanıcıya ürün transfer eder.
+    Gönderen stoğu 0'a inerse kaydı silinir.
     """
     product = get_object_or_404(Product, id=product_id)
     data = request.data
@@ -768,7 +780,7 @@ def transfer_product_api(request, product_id):
     except ValueError:
         return Response({"detail": "Geçersiz quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Artık sabit "testuser" yok, token'dan gelen kullanıcı (transferi başlatan)
+    # Token'dan gelen kullanıcı (transferi başlatan)
     user = request.user
     if not user.is_authenticated:
         return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
@@ -787,9 +799,16 @@ def transfer_product_api(request, product_id):
     # Hedef stoğu bul veya oluştur
     receiver_stock, created = UserStock.objects.get_or_create(user=target_user, product=product)
 
-    # Transfer miktarını düş - ekle
+    # Transfer: gönderenin stoğu düş, alıcının stoğu artar
     sender_stock.quantity -= qty
     sender_stock.save()
+
+    # Eğer 0'a inmişse sil
+    if sender_stock.quantity == 0:
+        sender_stock.delete()
+        current_sender_qty = 0
+    else:
+        current_sender_qty = sender_stock.quantity
 
     receiver_stock.quantity += qty
     receiver_stock.save()
@@ -802,7 +821,7 @@ def transfer_product_api(request, product_id):
         user=user,  # Transferi başlatan
         target_user=target_user,
         description="Kullanıcılar arası transfer (JSON).",
-        current_user_quantity=sender_stock.quantity,
+        current_user_quantity=current_sender_qty,
         current_receiver_quantity=receiver_stock.quantity
     )
 
@@ -811,9 +830,10 @@ def transfer_product_api(request, product_id):
 
 
 
+
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Token veya session kimlik doğrulaması gereksin
+@permission_classes([IsAuthenticated])  # Artık kimlik doğrulaması gerekli
 def use_product_api(request, product_id):
     """
     JSON tabanlı kullanım:
@@ -821,6 +841,7 @@ def use_product_api(request, product_id):
     Body: { "quantity": 2 }
 
     Bu fonksiyon, car stoğundan ürünü kullanma (düşme) işlemi yapar.
+    Kullanıcı stoğu 0'a inerse UserStock kaydı silinir.
     """
     product = get_object_or_404(Product, id=product_id)
     data = request.data
@@ -831,7 +852,7 @@ def use_product_api(request, product_id):
     except ValueError:
         return Response({"detail": "Geçersiz quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Artık sabit "testuser" yok, token'dan gelen kullanıcı
+    # Token'dan gelen kullanıcı
     user = request.user
     if not user.is_authenticated:
         return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
@@ -841,9 +862,16 @@ def use_product_api(request, product_id):
     if not user_stock or user_stock.quantity < qty:
         return Response({"detail": "Kişisel stokta yeterli miktar yok."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Kullanım işlemi: stoktan qty kadar düş
+    # Stoğu düş
     user_stock.quantity -= qty
     user_stock.save()
+
+    # Kontrol: 0'a inmişse kaydı sil
+    if user_stock.quantity == 0:
+        user_stock.delete()
+        current_qty_for_log = 0
+    else:
+        current_qty_for_log = user_stock.quantity
 
     # İşlem kaydı (StockTransaction)
     StockTransaction.objects.create(
@@ -852,10 +880,11 @@ def use_product_api(request, product_id):
         quantity=qty,
         user=user,
         description="Kullanıcı ürünü kullandı (JSON).",
-        current_user_quantity=user_stock.quantity
+        current_user_quantity=current_qty_for_log
     )
 
     return Response({"detail": "Kullanım işlemi başarılı"}, status=status.HTTP_200_OK)
+
 
 
 

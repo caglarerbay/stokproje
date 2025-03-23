@@ -16,7 +16,20 @@ SECRET_KEY = 'replace-this-with-a-very-secret-key'
 # Geliştirme aşamasında DEBUG True olmalı, production'da False yapmalısın.
 DEBUG = True
 
-ALLOWED_HOSTS = []
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        # Opsiyonel: 'rest_framework.authentication.SessionAuthentication',
+    ],
+}
+
+
+
+ALLOWED_HOSTS = [
+    '127.0.0.1',
+    'localhost',
+    'DESKTOP-6L81PLG',
+]
 
 # Uygulama tanımlamaları
 INSTALLED_APPS = [

@@ -326,10 +326,11 @@ def admin_add_product(request):
     Sadece admin (is_staff) kullanıcı ekleyebilir/güncelleyebilir.
     """
     data = request.data
+    print("DEBUG data:", data)
     part_code = data.get('part_code')
     name = data.get('name')
     qty = data.get('quantity', 0)
-
+    print("DEBUG part_code:", part_code, "name:", name, "qty:", qty)
     if not part_code or not name:
         return Response({"detail": "part_code ve name zorunlu."}, status=400)
 

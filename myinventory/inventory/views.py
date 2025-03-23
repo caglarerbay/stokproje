@@ -162,7 +162,7 @@ def forgot_password_user(request):
 
 @csrf_exempt
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def search_product(request):
     """
     GET /api/search_product/?q=...
@@ -209,16 +209,34 @@ def search_product(request):
 
 
 
-@staff_member_required
-def critical_stock_list(request):
-    # Kritik stok: ürün miktarı min_limit'in altındaysa (sipariş durumu farketmeksizin)
+@csrf_exempt
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def critical_stock_api(request):
+    """
+    GET /api/critical_stock_api/
+    Kritik stoktaki ürünleri JSON döndürür (sadece admin).
+    """
+    from django.db.models import F
     critical_products = Product.objects.filter(quantity__lt=F('min_limit'))
-    return render(request, "inventory/critical_stock_list.html", {"critical_products": critical_products})
+
+    results = []
+    for p in critical_products:
+        results.append({
+            "part_code": p.part_code,
+            "name": p.name,
+            "quantity": p.quantity,
+            "min_limit": p.min_limit,
+            "order_placed": p.order_placed,
+        })
+
+    return Response({"critical_products": results}, status=200)
+
 
 
 @csrf_exempt
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def user_list(request):
     """
     GET /api/user_list/
@@ -236,15 +254,16 @@ def user_list(request):
 
 @csrf_exempt
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])  # Kullanıcı token veya session ile doğrulanmalı
 def my_stock(request):
     """
     GET /api/my_stock/
     Kullanıcının stoğunu JSON olarak döndürür.
     """
-    # Geliştirme/test için sabit user:
-    from django.contrib.auth.models import User
-    user = User.objects.get(username="testuser")
+    # Artık sabit testuser yerine, token'dan gelen user
+    user = request.user
+    # (İsteğe bağlı) if not user.is_authenticated: check
+    # Ama 'IsAuthenticated' zaten 401 döndürecek
 
     user_stocks = UserStock.objects.filter(user=user)
 
@@ -258,6 +277,7 @@ def my_stock(request):
         })
 
     return Response({"stocks": results}, status=status.HTTP_200_OK)
+
 
 
 
@@ -322,35 +342,102 @@ from django.contrib.auth.models import User
 def admin_add_product(request):
     """
     POST /api/admin_add_product/
-    Body: { "part_code": "1007", "name": "Yeni Ürün", "quantity": 5 }
-    Sadece admin (is_staff) kullanıcı ekleyebilir/güncelleyebilir.
+    Body: { "part_code": "ABC123", "name": "Yeni Ürün", "quantity": 5 }
+    Sadece yeni ürün ekler; eğer product zaten varsa hata döndürür.
     """
     data = request.data
-    print("DEBUG data:", data)
     part_code = data.get('part_code')
     name = data.get('name')
     qty = data.get('quantity', 0)
-    print("DEBUG part_code:", part_code, "name:", name, "qty:", qty)
+
+    # Zorunlu alan kontrolü
     if not part_code or not name:
         return Response({"detail": "part_code ve name zorunlu."}, status=400)
 
+    # Miktarı parse et
     try:
         qty = int(qty)
     except ValueError:
         return Response({"detail": "Geçersiz quantity"}, status=400)
 
-    from .models import Product
-    product, created = Product.objects.get_or_create(
-        part_code=part_code,
-        defaults={'name': name, 'quantity': qty}
-    )
-    if not created:
-        # Ürün zaten vardı, stoğunu arttırıp ismini güncelle
-        product.name = name
-        product.quantity += qty
-        product.save()
+    # Ürün zaten var mı?
+    if Product.objects.filter(part_code=part_code).exists():
+        return Response({
+            "detail": "Bu part_code zaten mevcut. Lütfen stok güncelleme endpointini kullanın."
+        }, status=400)
 
-    return Response({"detail": "Ürün eklendi/güncellendi."}, status=200)
+    # Yeni ürün oluştur
+    product = Product.objects.create(
+        part_code=part_code,
+        name=name,
+        quantity=qty
+    )
+
+    # Transaction kaydı (yeni ürün eklendi)
+    StockTransaction.objects.create(
+        product=product,
+        transaction_type="IN",
+        quantity=qty,
+        user=request.user,  # admin
+        description="Yeni ürün eklendi (admin_add_product).",
+        current_quantity=product.quantity
+    )
+
+    return Response({
+        "detail": "Yeni ürün başarıyla eklendi.",
+        "part_code": part_code,
+        "quantity": qty
+    }, status=200)
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def admin_update_stock(request, product_id):
+    """
+    POST /api/admin_update_stock/<product_id>/
+    Body: { "arrived_quantity": 10 }
+
+    Var olan ürüne siparişle gelen miktarı ekler.
+    Eğer product.order_placed=True ise sıfırlar (false yapar).
+    """
+    data = request.data
+    arrived_qty = data.get('arrived_quantity', None)
+
+    if arrived_qty is None:
+        return Response({"detail": "arrived_quantity alanı zorunlu."}, status=400)
+
+    try:
+        arrived_qty = int(arrived_qty)
+    except ValueError:
+        return Response({"detail": "arrived_quantity sayı olmalı."}, status=400)
+
+    product = get_object_or_404(Product, id=product_id)
+
+    old_qty = product.quantity
+    product.quantity += arrived_qty
+    # Sipariş gelince order_placed'ı sıfırlayalım
+    if product.order_placed:
+        product.order_placed = False
+
+    product.save()
+
+    # Transaction kaydı
+    StockTransaction.objects.create(
+        product=product,
+        transaction_type="UPDATE",  # veya "ARRIVED" diyebilirsiniz
+        quantity=arrived_qty,
+        user=request.user,  # admin
+        description=f"Admin stok güncellemesi. Eski: {old_qty}, Yeni: {product.quantity}",
+        current_quantity=product.quantity
+    )
+
+    return Response({
+        "detail": "Stok güncellendi, sipariş bilgisi sıfırlandı.",
+        "old_quantity": old_qty,
+        "new_quantity": product.quantity
+    }, status=200)
+
 
 
 
@@ -359,7 +446,7 @@ def admin_add_product(request):
 
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])  # Artık kimlik doğrulama gerekli
 def take_product(request, product_id):
     """
     JSON tabanlı alma işlemi:
@@ -367,6 +454,7 @@ def take_product(request, product_id):
     Body: { "quantity": 3 }
 
     Bu fonksiyon, ana depodan car stoğuna ürün alır.
+    Kullanıcı token (veya session) ile istek yapmalı, request.user'a göre işlem yapılır.
     """
     product = get_object_or_404(Product, id=product_id)
     data = request.data
@@ -377,19 +465,16 @@ def take_product(request, product_id):
     except ValueError:
         return Response({"detail": "Geçersiz quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Ana stokta yeterli var mı
+    # Ana stokta yeterli var mı?
     if product.quantity < qty:
         return Response({"detail": "Ana stokta yeterli miktar yok."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Kullanıcının stoğunu bul veya oluştur
-    # Dikkat: user = request.user if request.user.is_authenticated else None
-    # Not: eğer 'AllowAny' kullanıyorsan, user anonymous olabilir. Geliştirme aşamasında test için.
-    # Üretimde "IsAuthenticated" yapmak daha mantıklı.
-    #Dikkat: if not user:
-     #Dikkat:    return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
-    from django.contrib.auth.models import User
-    user = User.objects.get(username="testuser")
+    # Token'dan gelen kullanıcı
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
 
+    # Kullanıcının stoğunu bul veya oluştur
     user_stock, created = UserStock.objects.get_or_create(user=user, product=product)
     user_stock.quantity += qty
     user_stock.save()
@@ -410,9 +495,10 @@ def take_product(request, product_id):
     return Response({"detail": "Alma işlemi başarılı"}, status=status.HTTP_200_OK)
 
 
+
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])  # Artık kimlik doğrulama gerekli
 def return_product(request, product_id):
     """
     JSON tabanlı iade işlemi:
@@ -420,6 +506,7 @@ def return_product(request, product_id):
     Body: { "quantity": 2 }
 
     Bu fonksiyon, car stoğundan ana stoğa ürün iade eder.
+    Kullanıcı token ile istek yapmalı (request.user).
     """
     product = get_object_or_404(Product, id=product_id)
     data = request.data
@@ -430,11 +517,11 @@ def return_product(request, product_id):
     except ValueError:
         return Response({"detail": "Geçersiz quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
-    #dikkat: user = request.user if request.user.is_authenticated else None
-    # dikkat: if not user:
-    #dikkat:     return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
-    from django.contrib.auth.models import User
-    user = User.objects.get(username="testuser")
+    # Artık sabit "testuser" yerine, token'dan gelen kullanıcıyı alıyoruz
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
+
     # Kullanıcının stoğunu bul
     user_stock = UserStock.objects.filter(user=user, product=product).first()
     if not user_stock or user_stock.quantity < qty:
@@ -461,14 +548,17 @@ def return_product(request, product_id):
 
 
 
+
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])  # Artık kimlik doğrulaması gerekli
 def transfer_product_api(request, product_id):
     """
     JSON tabanlı transfer:
     POST /transfer_product/<product_id>/
     Body: { "quantity": 2, "target_username": "kemal" }
+
+    Bu fonksiyon, kullanıcı stoğundan başka bir kullanıcıya ürün transfer eder.
     """
     product = get_object_or_404(Product, id=product_id)
     data = request.data
@@ -480,31 +570,38 @@ def transfer_product_api(request, product_id):
     except ValueError:
         return Response({"detail": "Geçersiz quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
-    from django.contrib.auth.models import User
-    user = User.objects.get(username="testuser")  # sabit user
+    # Artık sabit "testuser" yok, token'dan gelen kullanıcı (transferi başlatan)
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
 
+    # Gönderen stoğu
     sender_stock = UserStock.objects.filter(user=user, product=product).first()
     if not sender_stock or sender_stock.quantity < qty:
         return Response({"detail": "Kişisel stokta yeterli miktar yok."}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Hedef kullanıcıyı bul
     try:
         target_user = User.objects.get(username=target_username)
     except User.DoesNotExist:
         return Response({"detail": "Hedef kullanıcı bulunamadı."}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Hedef stoğu bul veya oluştur
     receiver_stock, created = UserStock.objects.get_or_create(user=target_user, product=product)
 
+    # Transfer miktarını düş - ekle
     sender_stock.quantity -= qty
     sender_stock.save()
 
     receiver_stock.quantity += qty
     receiver_stock.save()
 
+    # İşlem kaydı
     StockTransaction.objects.create(
         product=product,
         transaction_type="TRANSFER",
         quantity=qty,
-        user=user,
+        user=user,  # Transferi başlatan
         target_user=target_user,
         description="Kullanıcılar arası transfer (JSON).",
         current_user_quantity=sender_stock.quantity,
@@ -515,14 +612,17 @@ def transfer_product_api(request, product_id):
 
 
 
+
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])  # Token veya session kimlik doğrulaması gereksin
 def use_product_api(request, product_id):
     """
     JSON tabanlı kullanım:
     POST /use_product/<product_id>/
     Body: { "quantity": 2 }
+
+    Bu fonksiyon, car stoğundan ürünü kullanma (düşme) işlemi yapar.
     """
     product = get_object_or_404(Product, id=product_id)
     data = request.data
@@ -533,16 +633,21 @@ def use_product_api(request, product_id):
     except ValueError:
         return Response({"detail": "Geçersiz quantity"}, status=status.HTTP_400_BAD_REQUEST)
 
-    from django.contrib.auth.models import User
-    user = User.objects.get(username="testuser")  # sabit user
+    # Artık sabit "testuser" yok, token'dan gelen kullanıcı
+    user = request.user
+    if not user.is_authenticated:
+        return Response({"detail": "Kullanıcı doğrulanmadı."}, status=status.HTTP_401_UNAUTHORIZED)
 
+    # Kullanıcının stoğunu bul
     user_stock = UserStock.objects.filter(user=user, product=product).first()
     if not user_stock or user_stock.quantity < qty:
         return Response({"detail": "Kişisel stokta yeterli miktar yok."}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Kullanım işlemi: stoktan qty kadar düş
     user_stock.quantity -= qty
     user_stock.save()
 
+    # İşlem kaydı (StockTransaction)
     StockTransaction.objects.create(
         product=product,
         transaction_type="USE",
@@ -556,18 +661,45 @@ def use_product_api(request, product_id):
 
 
 
-@staff_member_required
-def transaction_log(request):
+
+@csrf_exempt
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def transaction_log_api(request):
+    """
+    GET /api/transaction_log_api/
+    Tüm stok işlemlerini JSON olarak döndürür (sadece admin).
+    """
     logs = StockTransaction.objects.all().order_by('-timestamp')
-    return render(request, 'inventory/transaction_log.html', {'logs': logs})
+    results = []
+    for log in logs:
+        results.append({
+            "timestamp": log.timestamp.isoformat(),
+            "transaction_type": log.transaction_type,
+            "product_code": log.product.part_code if log.product else None,
+            "quantity": log.quantity,
+            "user": log.user.username if log.user else None,
+            "target_user": log.target_user.username if log.target_user else None,
+            "description": log.description,
+            "current_quantity": log.current_quantity,
+            "current_user_quantity": log.current_user_quantity,
+            "current_receiver_quantity": log.current_receiver_quantity,
+        })
+    return Response({"logs": results}, status=200)
 
 
-@staff_member_required
-def send_critical_stock_email(request):
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def send_critical_stock_email_api(request):
+    """
+    POST /api/send_critical_stock_email_api/
+    Kritik stok uyarı mailini gönderir, JSON cevap döndürür.
+    """
     from django.db.models import F
     critical_products = Product.objects.filter(quantity__lt=F('min_limit'))
 
-    # Siparişi çekilmemiş ve çekilmiş ürünleri ayıralım:
     not_ordered = critical_products.filter(order_placed=False)
     ordered = critical_products.filter(order_placed=True)
 
@@ -601,20 +733,24 @@ def send_critical_stock_email(request):
     recipient = settings.CRITICAL_STOCK_ALERT_RECIPIENT
     send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient])
 
-    # Mail gönderildikten sonra, sipariş çekilmemiş ürünleri sipariş çekilmiş olarak işaretleyelim.
     not_ordered.update(order_placed=True)
 
-    messages.success(request, "Kritik stok uyarı maili gönderildi.")
-    return redirect('critical_stock_list')
+    return Response({"detail": "Kritik stok uyarı maili gönderildi."}, status=200)
 
 
-@staff_member_required
-def send_excel_report_email(request):
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def send_excel_report_email_api(request):
+    """
+    POST /api/send_excel_report_email_api/
+    Kritik stok Excel raporunu mail atar, JSON cevap döndürür.
+    """
     from django.db.models import F
     critical_products = Product.objects.filter(quantity__lt=F('min_limit'))
     if not critical_products.exists():
-        messages.info(request, "Kritik stok ürünü bulunamadı. Mail gönderilmeyecek.")
-        return redirect('critical_stock_list')
+        return Response({"detail": "Kritik stok ürünü bulunamadı. Mail gönderilmeyecek."}, status=400)
 
     excel_file = create_excel_report(critical_products)
     excel_content = excel_file.read()
@@ -626,13 +762,13 @@ def send_excel_report_email(request):
     email.attach('kritik_stok_raporu.xlsx', excel_content, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     email.send()
 
-    # Push bildirim gönderelim: Kritik stok uyarısı.
+    # Push bildirim
     notification_title = "Kritik Stok Uyarısı"
     notification_body = "Bazı ürünlerin stokları kritik seviyeye düştü. Lütfen kontrol ediniz."
     send_push_notification(notification_title, notification_body)
 
-    messages.success(request, "Kritik stok Excel raporlu e-posta ve push bildirim gönderildi.")
-    return redirect('critical_stock_list')
+    return Response({"detail": "Kritik stok Excel raporlu e-posta ve push bildirim gönderildi."}, status=200)
+
 
 
 

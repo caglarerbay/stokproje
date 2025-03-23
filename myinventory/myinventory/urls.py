@@ -24,6 +24,7 @@ urlpatterns = [
     
     path('', include('inventory.urls')),  # Uygulamanın URL'lerini dahil ediyoruz.
     path('api/', include('inventory.urls_api')),
+    path('admin/', admin.site.urls)
      # API endpoint'leri, /api/ prefix'i ile erişilecek
 ]
 

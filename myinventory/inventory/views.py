@@ -336,6 +336,165 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import Product, UserStock, StockTransaction
 from django.contrib.auth.models import User
 
+
+@csrf_exempt
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def admin_list_user_stocks(request):
+    """
+    GET /api/admin_list_user_stocks/
+    Opsiyonel: ?username=caglar
+    
+    Eğer ?username=caglar verilirse, sadece "caglar" kullanıcısının stoğunu döndürür.
+    Aksi halde tüm kullanıcıları döndürür.
+    
+    Örnek yanıt:
+    {
+      "user_stocks": [
+        {
+          "username": "caglar",
+          "stocks": [
+            { "product_id": 5, "part_code": "ABC", "quantity": 10 },
+            ...
+          ]
+        },
+        ...
+      ]
+    }
+    """
+    from django.contrib.auth.models import User
+    
+    # 1) Opsiyonel sorgu parametresi
+    username_filter = request.GET.get('username', None)
+
+    # 2) Tüm kullanıcıları çek
+    users = User.objects.all().order_by('username')
+    
+    # 3) Eğer username parametresi varsa, o kullanıcıyı filtrele
+    if username_filter:
+        users = users.filter(username=username_filter)
+        # Eğer hiç kullanıcı bulamadıysak, 200 döner ama "user_stocks":[] olabilir
+        # İsterseniz 404 döndürmeyi tercih edebilirsiniz. Tamamen size bağlı.
+
+    result = []
+    for u in users:
+        user_stocks = UserStock.objects.filter(user=u)
+        stocks_data = []
+        for us in user_stocks:
+            stocks_data.append({
+                "product_id": us.product.id,
+                "part_code": us.product.part_code,
+                "quantity": us.quantity
+            })
+        
+        result.append({
+            "username": u.username,
+            "stocks": stocks_data
+        })
+
+    return Response({"user_stocks": result}, status=200)
+
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def admin_adjust_user_stock(request):
+    """
+    POST /api/admin_adjust_user_stock/
+    Body: {
+      "username": "kemal",
+      "part_code": "ABC",
+      "new_quantity": 5
+    }
+
+    Admin, kullanıcının stoğunu manuel ayarlar.
+    Eger new_quantity=0 ise stoğu tamamen kaldırabiliriz (delete).
+    """
+    data = request.data
+    username = data.get('username')
+    part_code = data.get('part_code')
+    new_quantity = data.get('new_quantity', None)
+
+    # 1) Zorunlu alan kontrolü
+    if not username or not part_code or new_quantity is None:
+        return Response({"detail": "username, part_code, new_quantity zorunlu."}, status=400)
+
+    try:
+        new_quantity = int(new_quantity)
+    except ValueError:
+        return Response({"detail": "new_quantity sayı olmalı."}, status=400)
+
+    # 2) Kullanıcıyı bul
+    from django.contrib.auth.models import User
+    try:
+        target_user = User.objects.get(username=username)
+    except User.DoesNotExist:
+        return Response({"detail": "Hedef kullanıcı bulunamadı."}, status=400)
+
+    # 3) Ürünü bul
+    product = Product.objects.filter(part_code=part_code).first()
+    if not product:
+        return Response({"detail": "Ürün bulunamadı (part_code hatalı?)."}, status=400)
+
+    # 4) Kullanıcı stoğu bul
+    user_stock = UserStock.objects.filter(user=target_user, product=product).first()
+    old_quantity = 0
+    if user_stock:
+        old_quantity = user_stock.quantity
+
+    if new_quantity <= 0:
+        # 0 veya negatif => stoğu tamamen kaldır
+        if user_stock:
+            user_stock.delete()
+
+        # Transaction kaydı: ADMIN_ADJUST (Kaldırma)
+        StockTransaction.objects.create(
+            product=product,
+            transaction_type="ADMIN_ADJUST",
+            quantity=0,  # veya abs(old_quantity)
+            user=request.user,  # admin
+            target_user=target_user,
+            description=f"Admin stok manuel silme. Eski: {old_quantity}, Yeni: 0",
+            current_user_quantity=0
+        )
+
+        return Response({
+            "detail": "Kullanıcının stoğu kaldırıldı.",
+            "old_quantity": old_quantity,
+            "new_quantity": 0
+        }, status=200)
+    else:
+        # new_quantity > 0 => set
+        if not user_stock:
+            # stoğu yoksa oluştur
+            user_stock = UserStock.objects.create(user=target_user, product=product, quantity=new_quantity)
+        else:
+            user_stock.quantity = new_quantity
+            user_stock.save()
+
+        # Transaction kaydı: ADMIN_ADJUST
+        # Burada isterseniz quantity=new_quantity yerine fark da tutabilirsiniz
+        StockTransaction.objects.create(
+            product=product,
+            transaction_type="ADMIN_ADJUST",
+            quantity=new_quantity,  # set edilen miktar
+            user=request.user,  # admin
+            target_user=target_user,
+            description=f"Admin stok manuel ayarlama. Eski: {old_quantity}, Yeni: {new_quantity}",
+            current_user_quantity=new_quantity
+        )
+
+        return Response({
+            "detail": "Kullanıcının stoğu ayarlandı.",
+            "old_quantity": old_quantity,
+            "new_quantity": new_quantity
+        }, status=200)
+
+
+
+
+
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
@@ -664,17 +823,21 @@ def use_product_api(request, product_id):
 
 @csrf_exempt
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAdminUser])  # Sadece admin (is_staff=True) erişebilsin
 def transaction_log_api(request):
     """
     GET /api/transaction_log_api/
-    Tüm stok işlemlerini JSON olarak döndürür (sadece admin).
+    
+    Tüm stok hareketlerini (StockTransaction) JSON olarak döndürür.
+    Son oluşturulan en üstte gelecek şekilde timestamp'e göre sıralıyoruz.
     """
     logs = StockTransaction.objects.all().order_by('-timestamp')
     results = []
+
     for log in logs:
         results.append({
-            "timestamp": log.timestamp.isoformat(),
+            "id": log.id,
+            "timestamp": log.timestamp.isoformat(),  # isoformat() => "2025-03-24T14:30:00.123456"
             "transaction_type": log.transaction_type,
             "product_code": log.product.part_code if log.product else None,
             "quantity": log.quantity,
@@ -685,7 +848,9 @@ def transaction_log_api(request):
             "current_user_quantity": log.current_user_quantity,
             "current_receiver_quantity": log.current_receiver_quantity,
         })
+
     return Response({"logs": results}, status=200)
+
 
 
 

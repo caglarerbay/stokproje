@@ -3,7 +3,8 @@ from rest_framework.authtoken import views as drf_auth_views
 from .views import (
     register_user, login_user, forgot_password_user,
     search_product, my_stock, use_product_api, transfer_product_api,
-    admin_add_product, user_list, take_product, return_product, admin_update_stock
+    admin_add_product, user_list, take_product, return_product, admin_update_stock,admin_adjust_user_stock, 
+     admin_list_user_stocks, transaction_log_api
 )
 
 urlpatterns = [
@@ -21,6 +22,9 @@ urlpatterns = [
     path('api/admin_add_product/', admin_add_product, name='admin_add_product'),
     path('api/admin_update_stock/<int:product_id>/', admin_update_stock, name='admin_update_stock'),
     path('api/user_list/', user_list, name='user_list'),
+    path('api/admin_list_user_stocks/', admin_list_user_stocks, name='admin_list_user_stocks'),
+    path('api/admin_adjust_user_stock/', admin_adjust_user_stock, name='admin_adjust_user_stock'),
+    path('api/transaction_log_api/', transaction_log_api, name='transaction_log_api'),
 
     # Moved these to /api/ prefix
     path('api/take_product/<int:product_id>/', take_product, name='take_product'),

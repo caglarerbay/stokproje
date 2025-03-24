@@ -61,7 +61,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           // Ürün Ekle
           ElevatedButton(
             onPressed: () {
-              // /admin_add_product ekranına giderken token ve staff_flag'i yine arguments'ta gönderiyoruz
               Navigator.pushNamed(
                 context,
                 '/admin_add_product',
@@ -95,6 +94,19 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               );
             },
             child: Text('Kullanıcı Stoklarını Gör'),
+          ),
+          SizedBox(height: 8),
+
+          // Yeni: Ayarlar ekranına git
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pushNamed(
+                context,
+                '/admin_settings',
+                arguments: {"token": _token, "staff_flag": _isStaff},
+              );
+            },
+            child: Text('Ayarlar'),
           ),
         ],
       ),

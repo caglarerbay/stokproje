@@ -10,6 +10,10 @@ import 'screens/home_screen.dart';
 import 'screens/transfer_usage_screen.dart';
 import 'screens/admin_panel_screen.dart';
 import 'screens/admin_add_product_screen.dart';
+import 'screens/admin_update_stock_screen.dart';
+import 'screens/admin_user_stocks_screen.dart';
+import 'screens/my_stock_screen.dart';
+import 'screens/admin_settings_screen.dart';
 
 void main() {
   runApp(MyApp());
@@ -30,6 +34,10 @@ class MyApp extends StatelessWidget {
         '/transfer_usage': (context) => TransferUsageScreen(),
         '/admin_panel': (context) => AdminPanelScreen(),
         '/admin_add_product': (context) => AdminAddProductScreen(),
+        '/admin_update_stock': (context) => AdminUpdateStockScreen(),
+        '/admin_user_stocks': (context) => AdminUserStocksScreen(),
+        '/my_stock_screen': (context) => MyStockScreen(),
+        '/admin_settings': (context) => AdminSettingsScreen(),
       },
       // Eğer “/home” gibi bir ekrana gideceksen, oraya da widget eklemen lazım
       // Bu satırlar senin diğer dosyalarında tanımlı widget'lara işaret etmeli

@@ -15,28 +15,22 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _errorMessage;
   Timer? _debounce;
 
-  // Admin veya normal kullanıcı?
   bool _isStaff = false;
-
-  // Login ekranından aldığımız token
   String? _token;
 
   @override
   void initState() {
     super.initState();
 
-    // Arama kutusu her değiştiğinde _onSearchChanged
+    // 1) Arama kutusunu dinle
     _searchController.addListener(_onSearchChanged);
 
-    // arguments'dan isStaff ve token alalım
+    // 2) arguments'tan isStaff ve token al
     Future.microtask(() {
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args is Map) {
-        // Örn: { "token": "...", "staff_flag": true }
-        setState(() {
-          _isStaff = args["staff_flag"] ?? false;
-          _token = args["token"]; // login_screen.dart'tan gelen token
-        });
+        _isStaff = args["staff_flag"] ?? false;
+        _token = args["token"];
       }
     });
   }
@@ -65,35 +59,33 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    if (_token == null || _token!.isEmpty) {
+      setState(() {
+        _errorMessage = "Token yok, arama yapılamaz.";
+      });
+      return;
+    }
+
     final url = Uri.parse(
       '${ApiConstants.baseUrl}/api/search_product/?q=$query',
     );
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Token $_token',
+    };
 
     try {
-      // Eğer endpoint IsAuthenticated ise token header ekleyin:
-      // _token boş mu kontrol edebilirsiniz:
-      final headers = {'Content-Type': 'application/json'};
-      if (_token != null && _token!.isNotEmpty) {
-        headers['Authorization'] = 'Token $_token';
-      }
-
       final response = await http.get(url, headers: headers);
-
       if (response.statusCode == 200) {
         final List data = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
           _errorMessage = null;
           _searchResults = data;
         });
-      } else if (response.statusCode == 400) {
+      } else {
         final body = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
-          _errorMessage = body['detail'] ?? "Hata: 400";
-          _searchResults.clear();
-        });
-      } else {
-        setState(() {
-          _errorMessage = "Arama hatası: ${response.statusCode}";
+          _errorMessage = body['detail'] ?? 'Hata: ${response.statusCode}';
           _searchResults.clear();
         });
       }
@@ -105,67 +97,54 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Sadece “Depodan Al” işlemi
   Future<void> _takeProduct(int productId, int quantity) async {
+    if (_token == null || _token!.isEmpty) {
+      setState(() {
+        _errorMessage = "Token yok, alma işlemi yapılamaz.";
+      });
+      return;
+    }
+
     final url = Uri.parse(
       '${ApiConstants.baseUrl}/api/take_product/$productId/',
     );
-    try {
-      // Token eklemek isterseniz yine ekleyebilirsiniz:
-      final headers = {'Content-Type': 'application/json'};
-      if (_token != null && _token!.isNotEmpty) {
-        headers['Authorization'] = 'Token $_token';
-      }
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Token $_token',
+    };
 
+    try {
       final response = await http.post(
         url,
         headers: headers,
         body: json.encode({'quantity': quantity}),
       );
-
       if (response.statusCode == 200) {
         print('Alma işlemi başarılı');
-        _searchProduct(); // Yeniden arama
-      } else {
-        print('Alma işlemi hatası: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('Sunucuya erişilemedi (takeProduct): $e');
-    }
-  }
-
-  Future<void> _returnProduct(int productId, int quantity) async {
-    final url = Uri.parse(
-      '${ApiConstants.baseUrl}/api/return_product/$productId/',
-    );
-    try {
-      final headers = {'Content-Type': 'application/json'};
-      if (_token != null && _token!.isNotEmpty) {
-        headers['Authorization'] = 'Token $_token';
-      }
-
-      final response = await http.post(
-        url,
-        headers: headers,
-        body: json.encode({'quantity': quantity}),
-      );
-      if (response.statusCode == 200) {
-        print('Bırakma işlemi başarılı');
+        // Listeyi yenilemek için tekrar arama
         _searchProduct();
       } else {
-        print('Bırakma işlemi hatası: ${response.statusCode}');
+        final body = json.decode(utf8.decode(response.bodyBytes));
+        setState(() {
+          _errorMessage = body['detail'] ?? 'Hata: ${response.statusCode}';
+        });
       }
     } catch (e) {
-      print('Sunucuya erişilemedi (returnProduct): $e');
+      setState(() {
+        _errorMessage = "Sunucuya erişilemedi: $e";
+      });
     }
   }
 
-  void _showQuantityDialog(bool isTake, int productId) {
+  // Depodan Al miktar diyaloğu
+  void _showTakeDialog(int productId) {
     int _tempQty = 1;
     showDialog(
       context: context,
       builder:
           (_) => AlertDialog(
-            title: Text(isTake ? 'Depodan Alma' : 'Depoya Bırakma'),
+            title: Text('Depodan Alma'),
             content: TextField(
               keyboardType: TextInputType.number,
               decoration: InputDecoration(labelText: 'Miktar'),
@@ -181,11 +160,7 @@ class _HomeScreenState extends State<HomeScreen> {
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  if (isTake) {
-                    _takeProduct(productId, _tempQty);
-                  } else {
-                    _returnProduct(productId, _tempQty);
-                  }
+                  _takeProduct(productId, _tempQty);
                 },
                 child: Text('Onayla'),
               ),
@@ -195,9 +170,38 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _logout() {
-    // Burada token vs. silmek isterseniz yapabilirsiniz
-    // Sonra login ekranına geri dönelim
+    // Token vs. sıfırlamak istiyorsanız burada yapabilirsiniz
     Navigator.pushReplacementNamed(context, '/login');
+  }
+
+  void _goToMyStock() {
+    Navigator.pushNamed(
+      context,
+      '/my_stock_screen',
+      arguments: {"token": _token, "staff_flag": _isStaff},
+    );
+  }
+
+  void _goToTransferUsage() {
+    Navigator.pushNamed(
+      context,
+      '/transfer_usage',
+      arguments: {"token": _token, "staff_flag": _isStaff},
+    );
+  }
+
+  void _goToAdminPanel() {
+    if (_isStaff) {
+      Navigator.pushNamed(
+        context,
+        '/admin_panel',
+        arguments: {"token": _token, "staff_flag": _isStaff},
+      );
+    } else {
+      setState(() {
+        _errorMessage = "Admin Paneline erişim yok (staff_flag=false).";
+      });
+    }
   }
 
   @override
@@ -217,7 +221,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(8.0),
         child: Column(
           children: [
-            // Arama kutusu boydan boya
+            // Arama kutusu
             TextField(
               controller: _searchController,
               decoration: InputDecoration(
@@ -227,40 +231,34 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             SizedBox(height: 8),
 
-            // Transfer/Kullanım butonu
+            // Kişisel Stok butonu
             ElevatedButton(
-              onPressed: () {
-                Navigator.pushNamed(
-                  context,
-                  '/transfer_usage',
-                  arguments: {"token": _token, "staff_flag": _isStaff},
-                );
-              },
-              child: Text('Transfer / Kullanım'),
+              onPressed: _goToMyStock,
+              child: Text('Kişisel Stok'),
             ),
-
             SizedBox(height: 8),
 
-            // Admin Panel butonu (sadece isStaff true ise)
+            // Transfer / Kullanım butonu
+            ElevatedButton(
+              onPressed: _goToTransferUsage,
+              child: Text('Transfer / Kullanım'),
+            ),
+            SizedBox(height: 8),
+
+            // Admin Panel butonu
             if (_isStaff)
               ElevatedButton(
-                onPressed: () {
-                  Navigator.pushNamed(
-                    context,
-                    '/admin_panel',
-                    arguments: {"token": _token, "staff_flag": _isStaff},
-                  );
-                },
+                onPressed: _goToAdminPanel,
                 child: Text('Admin Paneli'),
               ),
 
             SizedBox(height: 8),
 
-            // Hata mesajı varsa göster
+            // Hata mesajı
             if (_errorMessage != null)
               Text(_errorMessage!, style: TextStyle(color: Colors.red)),
 
-            // Sonuç listesi
+            // Arama sonuçları
             Expanded(
               child:
                   _searchResults.isEmpty
@@ -269,48 +267,41 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemCount: _searchResults.length,
                         itemBuilder: (context, index) {
                           final product = _searchResults[index];
-                          final carStocks =
-                              product['car_stocks'] as List<dynamic>? ?? [];
+                          // product = { "id":..., "part_code":..., "name":..., "quantity":..., "car_stocks":[...] }
 
+                          final partCode = product['part_code'];
+                          final name = product['name'];
+                          final anaStokQty = product['quantity'];
+
+                          // "car_stocks" var ama bu ekranda sadece depodan al var, iade yok
                           return ExpansionTile(
                             title: Row(
                               children: [
-                                Expanded(
-                                  child: Text(
-                                    '${product['name']} (Kod: ${product['part_code']})',
-                                  ),
-                                ),
+                                Expanded(child: Text('$name (Kod: $partCode)')),
+                                // Sadece depodan al butonu
                                 IconButton(
                                   icon: Icon(Icons.download),
                                   tooltip: 'Depodan Al',
                                   onPressed:
-                                      () => _showQuantityDialog(
-                                        true,
-                                        product['id'],
-                                      ),
-                                ),
-                                IconButton(
-                                  icon: Icon(Icons.upload),
-                                  tooltip: 'Depoya Bırak',
-                                  onPressed:
-                                      () => _showQuantityDialog(
-                                        false,
-                                        product['id'],
-                                      ),
+                                      () => _showTakeDialog(product['id']),
                                 ),
                               ],
                             ),
-                            subtitle: Text('Ana Stok: ${product['quantity']}'),
+                            subtitle: Text('Ana Stok: $anaStokQty'),
                             children: [
-                              if (carStocks.isEmpty)
+                              // Kullanıcı stoklarını göstermek isterseniz:
+                              if (product['car_stocks'] == null ||
+                                  (product['car_stocks'] as List).isEmpty)
                                 ListTile(
                                   title: Text('Bu ürünü tutan kullanıcı yok.'),
                                 )
                               else
-                                ...carStocks.map((cs) {
+                                ...(product['car_stocks'] as List).map((cs) {
+                                  final username = cs['username'];
+                                  final qty = cs['quantity'];
                                   return ListTile(
-                                    title: Text('Kullanıcı: ${cs['username']}'),
-                                    subtitle: Text('Miktar: ${cs['quantity']}'),
+                                    title: Text('Kullanıcı: $username'),
+                                    subtitle: Text('Miktar: $qty'),
                                   );
                                 }).toList(),
                             ],

@@ -245,10 +245,15 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_isStaff)
               ElevatedButton(
                 onPressed: () {
-                  Navigator.pushNamed(context, '/admin_panel');
+                  Navigator.pushNamed(
+                    context,
+                    '/admin_panel',
+                    arguments: {"token": _token, "staff_flag": _isStaff},
+                  );
                 },
                 child: Text('Admin Paneli'),
               ),
+
             SizedBox(height: 8),
 
             // Hata mesajı varsa göster

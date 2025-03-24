@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../services/api_constants.dart';
 
 class AdminAddProductScreen extends StatefulWidget {
   @override
@@ -14,15 +15,50 @@ class _AdminAddProductScreenState extends State<AdminAddProductScreen> {
   int _quantity = 0;
   String? _errorMessage;
 
+  // BURADA TOKEN TUTACAĞIZ
+  String? _token;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // arguments'tan token'ı alalım
+    Future.microtask(() {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map) {
+        // Örnek: { "token": "...", "staff_flag": true }
+        _token = args["token"];
+      } else {
+        setState(() {
+          _errorMessage = "Token alınamadı. Lütfen tekrar giriş yapın.";
+        });
+      }
+    });
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     _formKey.currentState!.save();
 
-    final url = Uri.parse('http://127.0.0.1:8000/api/admin_add_product/');
+    if (_token == null || _token!.isEmpty) {
+      setState(() {
+        _errorMessage = "Token yok, admin_add_product için giriş gerekli.";
+      });
+      return;
+    }
+
+    final url = Uri.parse('${ApiConstants.baseUrl}/api/admin_add_product/');
+
+    // Token header
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Token $_token', // <-- ÖNEMLİ
+    };
+
     try {
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: json.encode({
           'part_code': _partCode,
           'name': _name,
@@ -31,12 +67,13 @@ class _AdminAddProductScreenState extends State<AdminAddProductScreen> {
       );
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
-        print(data['detail']);
+        print("admin_add_product detail: ${data['detail']}");
         Navigator.pop(context); // Ekrandan çık
       } else {
-        final data = json.decode(utf8.decode(response.bodyBytes));
+        // Hata
+        final body = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
-          _errorMessage = data['detail'] ?? 'Hata: ${response.statusCode}';
+          _errorMessage = body['detail'] ?? 'Hata: ${response.statusCode}';
         });
       }
     } catch (e) {

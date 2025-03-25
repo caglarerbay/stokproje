@@ -13,7 +13,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Güvenlik için kullanılacak gizli anahtar (production'da değiştirmeyi unutma!)
 SECRET_KEY = 'replace-this-with-a-very-secret-key'
 
-# Geliştirme aşamasında DEBUG True olmalı, production'da False yapmalısın.
+# Geliştirme aşamasında DEBUG True, production'da False yapmalısın.
 DEBUG = True
 
 REST_FRAMEWORK = {
@@ -23,18 +23,17 @@ REST_FRAMEWORK = {
     ],
 }
 
-
-
+# ALLOWED_HOSTS ayarını, AWS instance'ınızın public DNS'i ekledim.
 ALLOWED_HOSTS = [
     '127.0.0.1',
     'localhost',
     'DESKTOP-6L81PLG',
     '10.0.2.2',
+    'ec2-16-171-15-250.eu-north-1.compute.amazonaws.com',
 ]
 
 # Uygulama tanımlamaları
 INSTALLED_APPS = [
-    # Django'nun varsayılan uygulamaları
     'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -64,7 +63,6 @@ ROOT_URLCONF = 'myinventory.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        # Global template klasörün varsa burada belirtebilirsin; yoksa APP_DIRS True olduğu için her uygulamanın template'leri okunur.
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -117,9 +115,7 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Giriş ve çıkış sonrası yönlendirme ayarları:
-# Kullanıcı giriş yaptıktan sonra ana sayfaya yönlendir
 LOGIN_REDIRECT_URL = '/'
-# Kullanıcı çıkış yaptıktan sonra giriş (login) sayfasına yönlendir
 LOGOUT_REDIRECT_URL = '/login/'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -130,17 +126,11 @@ EMAIL_HOST_USER = 'nuk.stoktakip@gmail.com'
 EMAIL_HOST_PASSWORD = 'oxfyfitygatvxaga'
 DEFAULT_FROM_EMAIL = 'nuk.stoktakip@gmail.com'
 
-
-#image upload için gerekli
-
+# Image upload için gerekli
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-
-# settings.py
+# Firebase için (örnek)
 FCM_API_KEY = 'your_firebase_api_key'
 
 CORS_ALLOW_ALL_ORIGINS = True
-
-
-

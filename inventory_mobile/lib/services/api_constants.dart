@@ -1,7 +1,5 @@
 class ApiConstants {
-  // Emülatörde Django'ya erişmek için:
-  static const String baseUrl = "http://10.0.2.2:8000";
-
-  // Eğer token veya ek sabitleriniz varsa buraya ekleyebilirsiniz
-  // static const String someOtherConstant = "...";
+  // AWS instance'ınızın public DNS veya IP adresine göre güncellendi:
+  static const String baseUrl =
+      "http://ec2-16-171-15-250.eu-north-1.compute.amazonaws.com:8000";
 }

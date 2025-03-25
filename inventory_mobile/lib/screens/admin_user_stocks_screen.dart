@@ -14,16 +14,6 @@ class _AdminUserStocksScreenState extends State<AdminUserStocksScreen> {
 
   String? _errorMessage;
   List<dynamic> _userStocks = [];
-  // userStocks = [
-  //   {
-  //     "username": "caglar",
-  //     "stocks": [
-  //       { "product_id": 5, "part_code": "ABC", "quantity": 10 },
-  //       ...
-  //     ]
-  //   },
-  //   ...
-  // ]
 
   @override
   void initState() {
@@ -79,6 +69,91 @@ class _AdminUserStocksScreenState extends State<AdminUserStocksScreen> {
     }
   }
 
+  Future<void> _updateUserStock(
+    String username,
+    String partCode,
+    int newQuantity,
+  ) async {
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}/api/admin_adjust_user_stock/',
+    );
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Token $_token',
+    };
+    final body = json.encode({
+      "username": username,
+      "part_code": partCode,
+      "new_quantity": newQuantity,
+    });
+    try {
+      final response = await http.post(url, headers: headers, body: body);
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Stok güncellendi.")));
+        _fetchUserStocks();
+      } else {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              data['detail'] ?? 'Güncelleme hatası: ${response.statusCode}',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Sunucu hatası: $e")));
+    }
+  }
+
+  void _showUpdateDialog(
+    String username,
+    String partCode,
+    int currentQuantity,
+  ) {
+    final _controller = TextEditingController(text: currentQuantity.toString());
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text("Stok Güncelle - $partCode"),
+          content: TextField(
+            controller: _controller,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(labelText: "Yeni Miktar"),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: Text("İptal"),
+            ),
+            TextButton(
+              onPressed: () {
+                final input = _controller.text;
+                final newQuantity = int.tryParse(input);
+                if (newQuantity == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Lütfen geçerli bir sayı girin.")),
+                  );
+                  return;
+                }
+                Navigator.pop(context);
+                _updateUserStock(username, partCode, newQuantity);
+              },
+              child: Text("Güncelle"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -105,10 +180,19 @@ class _AdminUserStocksScreenState extends State<AdminUserStocksScreen> {
                         ListTile(title: Text('Bu kullanıcının stoğu yok.'))
                       else
                         ...stocks.map((stockItem) {
-                          // stockItem = { "product_id":..., "part_code":..., "quantity":... }
                           return ListTile(
                             title: Text('Ürün: ${stockItem['part_code']}'),
                             subtitle: Text('Miktar: ${stockItem['quantity']}'),
+                            trailing: IconButton(
+                              icon: Icon(Icons.edit),
+                              onPressed: () {
+                                _showUpdateDialog(
+                                  username,
+                                  stockItem['part_code'],
+                                  stockItem['quantity'],
+                                );
+                              },
+                            ),
                           );
                         }).toList(),
                     ],

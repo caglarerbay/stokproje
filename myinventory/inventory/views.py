@@ -343,7 +343,7 @@ def admin_adjust_user_stock(request):
 
         StockTransaction.objects.create(
             product=product,
-            transaction_type="ADMIN_ADJUST",
+            transaction_type="ADJUST",
             quantity=new_quantity,
             user=request.user,
             target_user=target_user,
@@ -405,6 +405,48 @@ def admin_add_product(request):
         "quantity": qty,
         "min_limit": min_limit
     }, status=200)
+
+
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def direct_transfer_product(request, product_id):
+    """
+    POST /api/direct_transfer_product/<product_id>/
+    Body: { "quantity": 2, "target_username": "kemal" }
+    Bu endpoint, ana stoktan doğrudan hedef kullanıcının stoğuna aktarım yapar.
+    """
+    product = get_object_or_404(Product, id=product_id)
+    data = request.data
+    try:
+        qty = int(data.get('quantity', 0))
+    except ValueError:
+        return Response({"detail": "Geçersiz quantity"}, status=400)
+    target_username = data.get('target_username', '')
+    if product.quantity < qty:
+        return Response({"detail": "Ana stokta yeterli miktar yok."}, status=400)
+    try:
+        target_user = User.objects.get(username=target_username)
+    except User.DoesNotExist:
+        return Response({"detail": "Hedef kullanıcı bulunamadı."}, status=400)
+    # Ana stoktan düşür
+    product.quantity -= qty
+    product.save()
+    # Hedef kullanıcının stoğunu güncelle
+    target_stock, created = UserStock.objects.get_or_create(user=target_user, product=product)
+    target_stock.quantity += qty
+    target_stock.save()
+    StockTransaction.objects.create(
+        product=product,
+        transaction_type="O_TRANSFER",
+        quantity=qty,
+        user=target_user,  # Log kaydında, hedef kullanıcı aktör olarak görünür
+        description="Doğrudan ana stoktan transfer",
+        current_quantity=product.quantity,
+        current_user_quantity=target_stock.quantity,
+    )
+    return Response({"detail": "Direct transfer başarılı."}, status=200)
+
 
 
 @csrf_exempt

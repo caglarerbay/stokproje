@@ -18,19 +18,21 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isStaff = false;
   String? _token;
 
+  // Mevcut kullanıcı listesini tutacak değişken (drop down için)
+  List<String> _userList = [];
+
   @override
   void initState() {
     super.initState();
-
-    // 1) Arama kutusunu dinle
     _searchController.addListener(_onSearchChanged);
-
-    // 2) arguments'tan isStaff ve token al
-    Future.microtask(() {
+    // Argümanları güvenli şekilde almak için post frame callback kullanıyoruz.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args is Map) {
         _isStaff = args["staff_flag"] ?? false;
         _token = args["token"];
+        print("Token from arguments: $_token");
+        _fetchUserList();
       }
     });
   }
@@ -44,9 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(Duration(milliseconds: 300), () {
-      _searchProduct();
-    });
+    _debounce = Timer(Duration(milliseconds: 300), _searchProduct);
   }
 
   Future<void> _searchProduct() async {
@@ -58,14 +58,12 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       return;
     }
-
     if (_token == null || _token!.isEmpty) {
       setState(() {
         _errorMessage = "Token yok, arama yapılamaz.";
       });
       return;
     }
-
     final url = Uri.parse(
       '${ApiConstants.baseUrl}/api/search_product/?q=$query',
     );
@@ -73,7 +71,6 @@ class _HomeScreenState extends State<HomeScreen> {
       'Content-Type': 'application/json',
       'Authorization': 'Token $_token',
     };
-
     try {
       final response = await http.get(url, headers: headers);
       if (response.statusCode == 200) {
@@ -97,7 +94,31 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Sadece “Depodan Al” işlemi
+  // Kullanıcı listesini çekiyoruz (/api/user_list/)
+  Future<void> _fetchUserList() async {
+    if (_token == null || _token!.isEmpty) return;
+    final url = Uri.parse('${ApiConstants.baseUrl}/api/user_list/');
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Token $_token',
+    };
+    try {
+      final response = await http.get(url, headers: headers);
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        setState(() {
+          _userList = List<String>.from(data['users']);
+          print("Fetched users: $_userList");
+        });
+      } else {
+        print("Kullanıcı listesi alınamadı, status: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("Kullanıcı listesi alınırken hata: $e");
+    }
+  }
+
+  // Ana stoktan ürün alma (take_product endpoint)
   Future<void> _takeProduct(int productId, int quantity) async {
     if (_token == null || _token!.isEmpty) {
       setState(() {
@@ -105,7 +126,6 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       return;
     }
-
     final url = Uri.parse(
       '${ApiConstants.baseUrl}/api/take_product/$productId/',
     );
@@ -113,7 +133,6 @@ class _HomeScreenState extends State<HomeScreen> {
       'Content-Type': 'application/json',
       'Authorization': 'Token $_token',
     };
-
     try {
       final response = await http.post(
         url,
@@ -121,23 +140,23 @@ class _HomeScreenState extends State<HomeScreen> {
         body: json.encode({'quantity': quantity}),
       );
       if (response.statusCode == 200) {
-        print('Alma işlemi başarılı');
-        // Listeyi yenilemek için tekrar arama
-        _searchProduct();
+        print('Ana stoktan alma işlemi başarılı');
       } else {
         final body = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
           _errorMessage = body['detail'] ?? 'Hata: ${response.statusCode}';
         });
+        throw Exception("Take product error");
       }
     } catch (e) {
       setState(() {
-        _errorMessage = "Sunucuya erişilemedi: $e";
+        _errorMessage = "Ana stoktan alma hatası: $e";
       });
+      rethrow;
     }
   }
 
-  // Depodan Al miktar diyaloğu
+  // "Depodan Al" diyalogu
   void _showTakeDialog(int productId) {
     int _tempQty = 1;
     showDialog(
@@ -161,6 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed: () {
                   Navigator.pop(context);
                   _takeProduct(productId, _tempQty);
+                  _searchProduct();
                 },
                 child: Text('Onayla'),
               ),
@@ -169,8 +189,174 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Kullanıcılar arası transfer (transfer_product_api endpoint)
+  Future<void> _transferProduct(
+    int productId,
+    String targetUsername,
+    int quantity,
+  ) async {
+    if (_token == null || _token!.isEmpty) {
+      setState(() {
+        _errorMessage = "Token yok, transfer işlemi yapılamaz.";
+      });
+      return;
+    }
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}/api/transfer_product/$productId/',
+    );
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Token $_token',
+    };
+    final body = json.encode({
+      "quantity": quantity,
+      "target_username": targetUsername,
+    });
+    try {
+      final response = await http.post(url, headers: headers, body: body);
+      if (response.statusCode == 200) {
+        print('Transfer işlemi başarılı');
+      } else {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        setState(() {
+          _errorMessage =
+              data['detail'] ?? 'Transfer hatası: ${response.statusCode}';
+        });
+        throw Exception("Transfer error");
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Transfer hatası: $e";
+      });
+      rethrow;
+    }
+  }
+
+  // Direct transfer: Ana stoktan doğrudan hedef kullanıcının stoğuna aktarım yapar.
+  Future<void> _directTransferProduct(
+    int productId,
+    String targetUsername,
+    int quantity,
+  ) async {
+    if (_token == null || _token!.isEmpty) {
+      setState(() {
+        _errorMessage = "Token yok, işlem yapılamaz.";
+      });
+      return;
+    }
+    final url = Uri.parse(
+      '${ApiConstants.baseUrl}/api/direct_transfer_product/$productId/',
+    );
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Token $_token',
+    };
+    final body = json.encode({
+      "quantity": quantity,
+      "target_username": targetUsername,
+    });
+    try {
+      final response = await http.post(url, headers: headers, body: body);
+      if (response.statusCode == 200) {
+        print("Direct transfer successful");
+        _searchProduct();
+      } else {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        setState(() {
+          _errorMessage = data['detail'] ?? "Hata: ${response.statusCode}";
+        });
+        throw Exception("Direct transfer error");
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Direct transfer hatası: $e";
+      });
+      rethrow;
+    }
+  }
+
+  // "Arkadaşına Transfer" diyalogu: Drop down menü ile mevcut kullanıcılar listeleniyor.
+  void _showTransferDialog(int productId) {
+    if (_userList.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Kullanıcı listesi boş. Lütfen daha sonra tekrar deneyin.",
+          ),
+        ),
+      );
+      return;
+    }
+    String? selectedUser = _userList.first;
+    int quantity = 1;
+    final quantityController = TextEditingController(text: "1");
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: Text('Arkadaşına Transfer'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButton<String>(
+                    value: selectedUser,
+                    isExpanded: true,
+                    onChanged: (newValue) {
+                      setStateDialog(() {
+                        selectedUser = newValue;
+                      });
+                    },
+                    items:
+                        _userList.map<DropdownMenuItem<String>>((String user) {
+                          return DropdownMenuItem<String>(
+                            value: user,
+                            child: Text(user),
+                          );
+                        }).toList(),
+                  ),
+                  TextField(
+                    controller: quantityController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: 'Miktar'),
+                    onChanged: (val) {
+                      quantity = int.tryParse(val) ?? 1;
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('İptal'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    if (selectedUser == null || selectedUser!.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text("Lütfen hedef kullanıcı seçin."),
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.pop(context);
+                    _directTransferProduct(productId, selectedUser!, quantity);
+                  },
+                  child: Text('Transfer'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Diğer navigasyon fonksiyonları
   void _logout() {
-    // Token vs. sıfırlamak istiyorsanız burada yapabilirsiniz
     Navigator.pushReplacementNamed(context, '/login');
   }
 
@@ -230,34 +416,28 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             SizedBox(height: 8),
-
             // Kişisel Stok butonu
             ElevatedButton(
               onPressed: _goToMyStock,
               child: Text('Kişisel Stok'),
             ),
             SizedBox(height: 8),
-
             // Transfer / Kullanım butonu
             ElevatedButton(
               onPressed: _goToTransferUsage,
               child: Text('Transfer / Kullanım'),
             ),
             SizedBox(height: 8),
-
-            // Admin Panel butonu
+            // Admin Panel butonu (staff ise)
             if (_isStaff)
               ElevatedButton(
                 onPressed: _goToAdminPanel,
                 child: Text('Admin Paneli'),
               ),
-
             SizedBox(height: 8),
-
             // Hata mesajı
             if (_errorMessage != null)
               Text(_errorMessage!, style: TextStyle(color: Colors.red)),
-
             // Arama sonuçları
             Expanded(
               child:
@@ -267,29 +447,31 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemCount: _searchResults.length,
                         itemBuilder: (context, index) {
                           final product = _searchResults[index];
-                          // product = { "id":..., "part_code":..., "name":..., "quantity":..., "car_stocks":[...] }
-
                           final partCode = product['part_code'];
                           final name = product['name'];
                           final anaStokQty = product['quantity'];
-
-                          // "car_stocks" var ama bu ekranda sadece depodan al var, iade yok
                           return ExpansionTile(
                             title: Row(
                               children: [
                                 Expanded(child: Text('$name (Kod: $partCode)')),
-                                // Sadece depodan al butonu
+                                // Depodan Al butonu
                                 IconButton(
                                   icon: Icon(Icons.download),
                                   tooltip: 'Depodan Al',
                                   onPressed:
                                       () => _showTakeDialog(product['id']),
                                 ),
+                                // Arkadaşına Transfer butonu
+                                IconButton(
+                                  icon: Icon(Icons.send),
+                                  tooltip: 'Arkadaşına Transfer',
+                                  onPressed:
+                                      () => _showTransferDialog(product['id']),
+                                ),
                               ],
                             ),
                             subtitle: Text('Ana Stok: $anaStokQty'),
                             children: [
-                              // Kullanıcı stoklarını göstermek isterseniz:
                               if (product['car_stocks'] == null ||
                                   (product['car_stocks'] as List).isEmpty)
                                 ListTile(

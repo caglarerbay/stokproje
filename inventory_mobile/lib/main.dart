@@ -14,6 +14,7 @@ import 'screens/admin_update_stock_screen.dart';
 import 'screens/admin_user_stocks_screen.dart';
 import 'screens/my_stock_screen.dart';
 import 'screens/admin_settings_screen.dart';
+import 'screens/admin_min_limit_screen.dart';
 
 void main() {
   runApp(MyApp());
@@ -38,6 +39,7 @@ class MyApp extends StatelessWidget {
         '/admin_user_stocks': (context) => AdminUserStocksScreen(),
         '/my_stock_screen': (context) => MyStockScreen(),
         '/admin_settings': (context) => AdminSettingsScreen(),
+        '/admin_min_limit': (context) => AdminMinLimitScreen(),
       },
       // Eğer “/home” gibi bir ekrana gideceksen, oraya da widget eklemen lazım
       // Bu satırlar senin diğer dosyalarında tanımlı widget'lara işaret etmeli

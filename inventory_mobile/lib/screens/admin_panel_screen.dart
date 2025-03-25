@@ -51,13 +51,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           if (_errorMessage != null)
             Text(_errorMessage!, style: TextStyle(color: Colors.red)),
           SizedBox(height: 16),
-
           Text(
             'Hoş geldin, Admin!',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           SizedBox(height: 16),
-
           // Ürün Ekle
           ElevatedButton(
             onPressed: () {
@@ -70,7 +68,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             child: Text('Ürün Ekle'),
           ),
           SizedBox(height: 8),
-
           // Stok Güncelle
           ElevatedButton(
             onPressed: () {
@@ -83,7 +80,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             child: Text('Stok Güncelle'),
           ),
           SizedBox(height: 8),
-
           // Kullanıcı Stoklarını Gör
           ElevatedButton(
             onPressed: () {
@@ -96,8 +92,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             child: Text('Kullanıcı Stoklarını Gör'),
           ),
           SizedBox(height: 8),
-
-          // Yeni: Ayarlar ekranına git
+          // Ayarlar ekranına git
           ElevatedButton(
             onPressed: () {
               Navigator.pushNamed(
@@ -107,6 +102,18 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               );
             },
             child: Text('Ayarlar'),
+          ),
+          SizedBox(height: 8),
+          // Yeni: Min Limit Ayarla butonu
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pushNamed(
+                context,
+                '/admin_min_limit',
+                arguments: {"token": _token, "staff_flag": _isStaff},
+              );
+            },
+            child: Text('Min Limit Ayarla'),
           ),
         ],
       ),

@@ -32,7 +32,7 @@ class Product(models.Model):
         null=True,
         blank=True
     )
-    
+
     def __str__(self):
         return f"{self.part_code} - {self.name}"
 
@@ -62,6 +62,8 @@ class StockTransaction(models.Model):
         ('RETURN', 'Kullanıcının Ana Stoka İade Etmesi'),
         ('TRANSFER', 'Kullanıcılar Arası Transfer'),
         ('USE', 'Kullanım'),
+        ('ADJUST', 'Admin Stok Ayarı'),
+        ('O_TRANSFER', 'Diğer Transfer'),
     )
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="transactions")
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)

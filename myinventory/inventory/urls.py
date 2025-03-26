@@ -1,5 +1,7 @@
 from django.urls import path
 from rest_framework.authtoken import views as drf_auth_views
+from django.http import HttpResponse
+from django.contrib import admin
 from .views import (
     register_user, login_user, forgot_password_user,
     search_product, my_stock, use_product_api, transfer_product_api,
@@ -9,8 +11,15 @@ from .views import (
      direct_transfer_product
 )
 
+
+def home(request):
+    return HttpResponse("Hoş geldiniz, Django backend çalışıyor!")
+
+
 urlpatterns = [
     # Auth / user management
+    path('', home, name='home'),  # Root URL için basit bir view
+    path('admin/', admin.site.urls),
     path('api/register/', register_user, name='register_user'),
     path('api/login/', login_user, name='login_user'),
     path('api/forgot_password/', forgot_password_user, name='forgot_password_user'),

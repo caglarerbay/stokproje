@@ -19,7 +19,7 @@ def home(request):
 urlpatterns = [
     # Auth / user management
     path('', home, name='home'),  # Root URL için basit bir view
-    path('admin/', admin.site.urls),
+    
     path('api/register/', register_user, name='register_user'),
     path('api/login/', login_user, name='login_user'),
     path('api/forgot_password/', forgot_password_user, name='forgot_password_user'),
